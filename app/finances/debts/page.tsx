@@ -35,6 +35,10 @@ export default function DebtsPage() {
   const [paySheetOpen, setPaySheetOpen] = useState(false)
   const [selected, setSelected] = useState<Debt | null>(null)
   const [payAmount, setPayAmount] = useState('')
+  const [payPrincipal, setPayPrincipal] = useState('')
+  const [payInterest, setPayInterest] = useState('')
+  const [payLateFees, setPayLateFees] = useState('')
+  const [payMiscFees, setPayMiscFees] = useState('')
   const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0])
   const [saving, setSaving] = useState(false)
 
@@ -64,7 +68,16 @@ export default function DebtsPage() {
 
   function openPayment(debt: Debt) {
     setSelected(debt)
-    setPayAmount(String(debt.min_payment ?? ''))
+    const isZero = parseFloat(String(debt.apr)) === 0
+    if (isZero) {
+      setPayAmount(String(debt.min_payment ?? ''))
+    } else {
+      setPayAmount('')
+      setPayPrincipal('')
+      setPayInterest('')
+      setPayLateFees('')
+      setPayMiscFees('')
+    }
     setPayDate(new Date().toISOString().split('T')[0])
     setPaySheetOpen(true)
   }
@@ -86,13 +99,38 @@ export default function DebtsPage() {
   }
 
   async function submitPayment() {
-    if (!selected || !payAmount) return
+    if (!selected) return
+    const isZero = parseFloat(String(selected.apr)) === 0
     setSaving(true)
-    await fetch(`/api/finances/debts/${selected.id}/payment`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount: parseFloat(payAmount), payment_date: payDate }),
-    })
+
+    if (isZero) {
+      if (!payAmount) { setSaving(false); return }
+      await fetch(`/api/finances/debts/${selected.id}/payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: parseFloat(payAmount), payment_date: payDate }),
+      })
+    } else {
+      const principal = parseFloat(payPrincipal) || 0
+      const interest = parseFloat(payInterest) || 0
+      const lateFees = parseFloat(payLateFees) || 0
+      const miscFees = parseFloat(payMiscFees) || 0
+      const total = principal + interest + lateFees + miscFees
+      if (!total) { setSaving(false); return }
+      await fetch(`/api/finances/debts/${selected.id}/payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: total,
+          principal_amount: principal || null,
+          interest_amount: interest || null,
+          late_fees: lateFees || null,
+          misc_fees: miscFees || null,
+          payment_date: payDate,
+        }),
+      })
+    }
+
     setSaving(false)
     setPaySheetOpen(false)
     fetchDebts()
@@ -254,26 +292,77 @@ export default function DebtsPage() {
 
       {/* Log Payment Sheet */}
       <BottomSheet open={paySheetOpen} onClose={() => setPaySheetOpen(false)} title={`Pay: ${selected?.name}`}>
-        {selected && (
-          <div className="space-y-4">
-            <div className="bg-gray-50 rounded-xl px-4 py-3">
-              <p className="text-xs text-gray-400">Current Balance</p>
-              <p className="text-lg font-bold" style={{ color: '#D94F3D' }}>{formatCurrency(selected.current_balance)}</p>
+        {selected && (() => {
+          const isZero = parseFloat(String(selected.apr)) === 0
+          const breakdownTotal = (parseFloat(payPrincipal) || 0) + (parseFloat(payInterest) || 0) + (parseFloat(payLateFees) || 0) + (parseFloat(payMiscFees) || 0)
+          const canSubmit = isZero ? !!payAmount : breakdownTotal > 0
+
+          return (
+            <div className="space-y-4">
+              {/* Current balance pill */}
+              <div className="bg-gray-50 rounded-xl px-4 py-3 flex justify-between items-center">
+                <p className="text-xs text-gray-400">Current Balance</p>
+                <p className="text-lg font-bold" style={{ color: '#D94F3D' }}>{formatCurrency(selected.current_balance)}</p>
+              </div>
+
+              {isZero ? (
+                /* 0% APR — simple amount, full payment reduces balance */
+                <AmountInput label="Payment Amount" value={payAmount} onChange={setPayAmount} required />
+              ) : (
+                /* Has interest — breakdown form */
+                <>
+                  <div className="rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="bg-gray-50 px-4 py-2 border-b border-gray-100">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Transaction Details</p>
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                      <div className="flex items-center px-4 py-3 gap-3">
+                        <span className="text-sm text-gray-700 w-32 shrink-0">Principal</span>
+                        <AmountInput value={payPrincipal} onChange={setPayPrincipal} placeholder="0.00" compact />
+                      </div>
+                      <div className="flex items-center px-4 py-3 gap-3">
+                        <span className="text-sm text-gray-700 w-32 shrink-0">Interest</span>
+                        <AmountInput value={payInterest} onChange={setPayInterest} placeholder="0.00" compact />
+                      </div>
+                      <div className="flex items-center px-4 py-3 gap-3">
+                        <span className="text-sm text-gray-700 w-32 shrink-0">Late Fees</span>
+                        <AmountInput value={payLateFees} onChange={setPayLateFees} placeholder="0.00" compact />
+                      </div>
+                      <div className="flex items-center px-4 py-3 gap-3">
+                        <span className="text-sm text-gray-700 w-32 shrink-0">Misc. Fees</span>
+                        <AmountInput value={payMiscFees} onChange={setPayMiscFees} placeholder="0.00" compact />
+                      </div>
+                    </div>
+                    {breakdownTotal > 0 && (
+                      <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200">
+                        <span className="text-sm font-bold text-gray-800">Total Amount</span>
+                        <span className="text-base font-bold text-gray-900">{formatCurrency(breakdownTotal)}</span>
+                      </div>
+                    )}
+                  </div>
+                  {breakdownTotal > 0 && (
+                    <p className="text-xs text-gray-400 text-center">
+                      Balance will decrease by <span className="font-semibold text-gray-600">{formatCurrency(breakdownTotal)}</span>
+                    </p>
+                  )}
+                </>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
+                <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900" />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setPaySheetOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold">Cancel</button>
+                <button onClick={submitPayment} disabled={saving || !canSubmit} className="flex-1 py-3 rounded-xl text-white font-semibold disabled:opacity-60" style={{ backgroundColor: '#2DB5AD' }}>
+                  {saving ? 'Saving…' : 'Log Payment'}
+                </button>
+              </div>
             </div>
-            <AmountInput label="Payment Amount" value={payAmount} onChange={setPayAmount} required />
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
-              <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900" />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setPaySheetOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold">Cancel</button>
-              <button onClick={submitPayment} disabled={saving || !payAmount} className="flex-1 py-3 rounded-xl text-white font-semibold disabled:opacity-60" style={{ backgroundColor: '#2DB5AD' }}>
-                {saving ? 'Saving…' : 'Log Payment'}
-              </button>
-            </div>
-          </div>
-        )}
+          )
+        })()}
       </BottomSheet>
 
       {/* Edit Sheet */}

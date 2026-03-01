@@ -8,20 +8,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params
   const body = await req.json()
-  const { amount, payment_date, notes } = body
+  const { amount, payment_date, notes, principal_amount, interest_amount, late_fees, misc_fees } = body
 
   if (!amount || !payment_date) {
     return Response.json({ data: null, error: 'amount and payment_date are required' }, { status: 400 })
   }
 
-  // Log the payment
+  // Log the payment with optional breakdown
   const payment = await sql`
-    INSERT INTO finance_debt_payments (debt_id, payment_date, amount, notes)
-    VALUES (${id}, ${payment_date}, ${amount}, ${notes ?? null})
+    INSERT INTO finance_debt_payments (debt_id, payment_date, amount, principal_amount, interest_amount, late_fees, misc_fees, notes)
+    VALUES (${id}, ${payment_date}, ${amount}, ${principal_amount ?? null}, ${interest_amount ?? null}, ${late_fees ?? null}, ${misc_fees ?? null}, ${notes ?? null})
     RETURNING *
   `
 
-  // Reduce the balance
+  // Always reduce balance by the total payment amount
   const debt = await sql`
     UPDATE finance_debts
     SET current_balance = GREATEST(0, current_balance - ${amount}), updated_at = NOW()

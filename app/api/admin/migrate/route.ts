@@ -232,6 +232,12 @@ export async function POST(req: NextRequest) {
     await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS frequency TEXT DEFAULT 'Monthly'`
     await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS is_autopay BOOLEAN DEFAULT false`
 
+    // --- Migration 004: payment breakdown columns ---
+    await sql`ALTER TABLE finance_debt_payments ADD COLUMN IF NOT EXISTS principal_amount NUMERIC(10,2)`
+    await sql`ALTER TABLE finance_debt_payments ADD COLUMN IF NOT EXISTS interest_amount NUMERIC(10,2)`
+    await sql`ALTER TABLE finance_debt_payments ADD COLUMN IF NOT EXISTS late_fees NUMERIC(10,2)`
+    await sql`ALTER TABLE finance_debt_payments ADD COLUMN IF NOT EXISTS misc_fees NUMERIC(10,2)`
+
     // --- Dedup all seeded tables (keep oldest row per unique key) ---
     await sql`
       DELETE FROM finance_debts
