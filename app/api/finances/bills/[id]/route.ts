@@ -30,7 +30,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const result = await rawSql(queryText, [id, ...values])
 
   if (!result.length) return Response.json({ data: null, error: 'Not found' }, { status: 404 })
-  return Response.json({ data: result[0], error: null })
+
+  const updatedBill = result[0] as Record<string, unknown>
+
+  // When default_amount changes on a Fixed bill, reset the current month's unpaid actual
+  // so the monthly view immediately reflects the new default instead of the stale override
+  if ('default_amount' in body && updatedBill.billing_type === 'Fixed') {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = now.getMonth() + 1
+    await sql`
+      UPDATE finance_actuals
+      SET amount = NULL, updated_at = NOW()
+      WHERE bill_id = ${id}
+        AND year = ${year}
+        AND month = ${month}
+        AND is_paid = false
+    `
+  }
+
+  return Response.json({ data: updatedBill, error: null })
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
