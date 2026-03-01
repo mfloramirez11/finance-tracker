@@ -40,7 +40,7 @@ export default function DebtsPage() {
 
   // Edit sheet
   const [editOpen, setEditOpen] = useState(false)
-  const [editForm, setEditForm] = useState({ balance: '', apr: '', minPayment: '', promoEndDate: '', hasPromo: false })
+  const [editForm, setEditForm] = useState({ name: '', balance: '', apr: '', minPayment: '', promoEndDate: '', hasPromo: false })
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -74,6 +74,7 @@ export default function DebtsPage() {
     const apr = parseFloat(String(debt.apr))
     const hasPromo = apr === 0 && !!debt.promo_end_date
     setEditForm({
+      name: debt.name,
       balance: String(debt.current_balance),
       apr: hasPromo ? '' : String(apr * 100),
       minPayment: String(debt.min_payment ?? ''),
@@ -104,6 +105,7 @@ export default function DebtsPage() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        name: editForm.name,
         current_balance: parseFloat(editForm.balance),
         apr: editForm.hasPromo ? 0 : parseFloat(editForm.apr) / 100,
         min_payment: parseFloat(editForm.minPayment),
@@ -278,6 +280,11 @@ export default function DebtsPage() {
       <BottomSheet open={editOpen} onClose={() => { setEditOpen(false); setConfirmDelete(false) }} title={`Edit: ${selected?.name}`}>
         {selected && (
           <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+              <input type="text" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900" />
+            </div>
             <AmountInput label="Current Balance" value={editForm.balance} onChange={v => setEditForm(f => ({ ...f, balance: v }))} />
             <AmountInput label="Min Payment" value={editForm.minPayment} onChange={v => setEditForm(f => ({ ...f, minPayment: v }))} />
 

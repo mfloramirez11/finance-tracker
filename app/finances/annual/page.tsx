@@ -10,6 +10,8 @@ import ProgressBar from '@/components/finances/ProgressBar'
 import LoadingSkeleton from '@/components/finances/LoadingSkeleton'
 import { formatCurrency, formatDate, daysUntil } from '@/lib/finances/format'
 
+const CATEGORIES = ['Auto', 'Credit Card', 'Health', 'Housing', 'Insurance', 'Subscriptions', 'Tech', 'Other']
+
 interface AnnualItem {
   id: string
   name: string
@@ -19,7 +21,6 @@ interface AnnualItem {
   account: string | null
   is_paid: boolean
   paid_date: string | null
-  is_critical: boolean
   notes: string | null
 }
 
@@ -30,6 +31,8 @@ interface AnnualData {
   remaining: number
 }
 
+const EMPTY_EDIT = { name: '', category: 'Auto', amount: '', dueDate: '', account: '', isPaid: false, paidDate: '' }
+
 export default function AnnualPage() {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
@@ -37,24 +40,17 @@ export default function AnnualPage() {
   const [loading, setLoading] = useState(true)
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all')
 
-  // Sheet
-  const [sheetOpen, setSheetOpen] = useState(false)
-  const [addOpen, setAddOpen] = useState(false)
+  // Edit sheet
+  const [editOpen, setEditOpen] = useState(false)
   const [selected, setSelected] = useState<AnnualItem | null>(null)
+  const [editForm, setEditForm] = useState(EMPTY_EDIT)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // Edit form
-  const [editAmount, setEditAmount] = useState('')
-  const [editPaid, setEditPaid] = useState(false)
-  const [editDate, setEditDate] = useState('')
-
-  // Add form
-  const [addName, setAddName] = useState('')
-  const [addCategory, setAddCategory] = useState('Auto')
-  const [addAmount, setAddAmount] = useState('')
-  const [addDueDate, setAddDueDate] = useState('')
-  const [addAccount, setAddAccount] = useState('')
-  const [addCritical, setAddCritical] = useState(false)
+  // Add sheet
+  const [addOpen, setAddOpen] = useState(false)
+  const [addForm, setAddForm] = useState(EMPTY_EDIT)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -68,10 +64,17 @@ export default function AnnualPage() {
 
   function openEdit(item: AnnualItem) {
     setSelected(item)
-    setEditAmount(String(item.amount))
-    setEditPaid(item.is_paid)
-    setEditDate(item.paid_date ? item.paid_date.split('T')[0] : new Date().toISOString().split('T')[0])
-    setSheetOpen(true)
+    setEditForm({
+      name: item.name,
+      category: item.category,
+      amount: String(item.amount),
+      dueDate: item.due_date.split('T')[0],
+      account: item.account ?? '',
+      isPaid: item.is_paid,
+      paidDate: item.paid_date ? item.paid_date.split('T')[0] : new Date().toISOString().split('T')[0],
+    })
+    setConfirmDelete(false)
+    setEditOpen(true)
   }
 
   async function saveEdit() {
@@ -81,30 +84,49 @@ export default function AnnualPage() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        amount: parseFloat(editAmount) || selected.amount,
-        is_paid: editPaid,
-        paid_date: editPaid ? editDate : null,
+        name: editForm.name,
+        category: editForm.category,
+        amount: parseFloat(editForm.amount) || selected.amount,
+        due_date: editForm.dueDate,
+        account: editForm.account || null,
+        is_paid: editForm.isPaid,
+        paid_date: editForm.isPaid ? editForm.paidDate : null,
       }),
     })
     setSaving(false)
-    setSheetOpen(false)
+    setEditOpen(false)
+    fetchData()
+  }
+
+  async function deleteItem() {
+    if (!selected) return
+    setDeleting(true)
+    await fetch(`/api/finances/annual/${selected.id}`, { method: 'DELETE' })
+    setDeleting(false)
+    setEditOpen(false)
+    setConfirmDelete(false)
     fetchData()
   }
 
   async function saveAdd() {
-    if (!addName || !addAmount || !addDueDate) return
+    if (!addForm.name || !addForm.amount || !addForm.dueDate) return
     setSaving(true)
     await fetch('/api/finances/annual', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: addName, category: addCategory, amount: parseFloat(addAmount),
-        due_date: addDueDate, account: addAccount, year, is_critical: addCritical,
+        name: addForm.name,
+        category: addForm.category,
+        amount: parseFloat(addForm.amount),
+        due_date: addForm.dueDate,
+        account: addForm.account || null,
+        year,
+        is_critical: false,
       }),
     })
     setSaving(false)
     setAddOpen(false)
-    setAddName(''); setAddAmount(''); setAddDueDate(''); setAddAccount('')
+    setAddForm(EMPTY_EDIT)
     fetchData()
   }
 
@@ -116,12 +138,61 @@ export default function AnnualPage() {
 
   const paidPct = data ? (data.paid / (data.total || 1)) * 100 : 0
 
+  const formFields = (form: typeof EMPTY_EDIT, setForm: React.Dispatch<React.SetStateAction<typeof EMPTY_EDIT>>) => (
+    <>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Name <span className="text-red-500">*</span></label>
+        <input
+          type="text"
+          value={form.name}
+          onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900"
+          placeholder="e.g. Toyota Registration"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+        <select
+          value={form.category}
+          onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900 bg-white"
+        >
+          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      <AmountInput label="Amount" value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} required />
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Due Date <span className="text-red-500">*</span></label>
+        <input
+          type="date"
+          value={form.dueDate}
+          onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Account</label>
+        <input
+          type="text"
+          value={form.account}
+          onChange={e => setForm(f => ({ ...f, account: e.target.value }))}
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900"
+          placeholder="e.g. Chase Manny"
+        />
+      </div>
+    </>
+  )
+
   return (
     <FinanceLayout
       title="Annual Expenses"
       rightAction={
         <button
-          onClick={() => setAddOpen(true)}
+          onClick={() => { setAddForm(EMPTY_EDIT); setAddOpen(true) }}
           className="w-9 h-9 flex items-center justify-center rounded-full text-white text-xl font-bold"
           style={{ backgroundColor: '#2DB5AD' }}
         >
@@ -209,11 +280,6 @@ export default function AnnualPage() {
                     <span className={`text-sm font-semibold ${item.is_paid ? 'text-gray-400' : 'text-gray-900'}`}>
                       {item.name}
                     </span>
-                    {item.is_critical && (
-                      <span className="text-xs font-bold text-white px-2 py-0.5 rounded-full" style={{ backgroundColor: '#D94F3D' }}>
-                        Critical
-                      </span>
-                    )}
                     <CategoryChip category={item.category} />
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
@@ -236,42 +302,60 @@ export default function AnnualPage() {
       )}
 
       {/* Edit Sheet */}
-      <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={selected?.name ?? ''}>
+      <BottomSheet open={editOpen} onClose={() => { setEditOpen(false); setConfirmDelete(false) }} title="Edit Expense">
         {selected && (
           <div className="space-y-4">
-            <AmountInput label="Amount" value={editAmount} onChange={setEditAmount} />
+            {formFields(editForm, setEditForm)}
 
+            {/* Paid toggle */}
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setEditPaid(!editPaid)}
+                onClick={() => setEditForm(f => ({ ...f, isPaid: !f.isPaid }))}
                 className="w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0"
-                style={editPaid
+                style={editForm.isPaid
                   ? { backgroundColor: '#27AE60', borderColor: '#27AE60' }
                   : { backgroundColor: 'transparent', borderColor: '#D1D5DB' }}
               >
-                {editPaid && <span className="text-white text-xs">✓</span>}
+                {editForm.isPaid && <span className="text-white text-xs">✓</span>}
               </button>
               <span className="text-sm text-gray-700">Mark as paid</span>
             </div>
 
-            {editPaid && (
+            {editForm.isPaid && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date paid</label>
                 <input
                   type="date"
-                  value={editDate}
-                  onChange={e => setEditDate(e.target.value)}
+                  value={editForm.paidDate}
+                  onChange={e => setEditForm(f => ({ ...f, paidDate: e.target.value }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900"
                 />
               </div>
             )}
 
             <div className="flex gap-3 pt-2">
-              <button onClick={() => setSheetOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold">Cancel</button>
+              <button onClick={() => { setEditOpen(false); setConfirmDelete(false) }} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold">Cancel</button>
               <button onClick={saveEdit} disabled={saving} className="flex-1 py-3 rounded-xl text-white font-semibold disabled:opacity-60" style={{ backgroundColor: '#1B2A4A' }}>
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
+
+            {!confirmDelete ? (
+              <button onClick={() => setConfirmDelete(true)}
+                className="w-full py-2.5 rounded-xl text-red-500 text-sm font-medium border border-red-100 bg-red-50 active:bg-red-100">
+                Delete this expense
+              </button>
+            ) : (
+              <div className="bg-red-50 rounded-xl p-3 space-y-2">
+                <p className="text-sm font-medium text-red-700 text-center">Delete "{selected.name}"?</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2 rounded-lg border border-gray-200 text-gray-600 text-sm font-semibold">Keep it</button>
+                  <button onClick={deleteItem} disabled={deleting} className="flex-1 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-60 bg-red-500">
+                    {deleting ? 'Deleting…' : 'Yes, delete'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </BottomSheet>
@@ -279,69 +363,11 @@ export default function AnnualPage() {
       {/* Add Sheet */}
       <BottomSheet open={addOpen} onClose={() => setAddOpen(false)} title="Add Annual Expense">
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Name <span className="text-red-500">*</span></label>
-            <input
-              type="text"
-              value={addName}
-              onChange={e => setAddName(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900"
-              placeholder="e.g. Toyota Registration"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-            <select
-              value={addCategory}
-              onChange={e => setAddCategory(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900 bg-white"
-            >
-              {['Auto', 'Housing', 'Insurance', 'Subscriptions', 'Tech', 'Health', 'Credit Card', 'Debt', 'Other'].map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-
-          <AmountInput label="Amount" value={addAmount} onChange={setAddAmount} required />
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Due Date <span className="text-red-500">*</span></label>
-            <input
-              type="date"
-              value={addDueDate}
-              onChange={e => setAddDueDate(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Account</label>
-            <input
-              type="text"
-              value={addAccount}
-              onChange={e => setAddAccount(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900"
-              placeholder="e.g. Chase Manny"
-            />
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setAddCritical(!addCritical)}
-              className="w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0"
-              style={addCritical
-                ? { backgroundColor: '#D94F3D', borderColor: '#D94F3D' }
-                : { backgroundColor: 'transparent', borderColor: '#D1D5DB' }}
-            >
-              {addCritical && <span className="text-white text-xs">!</span>}
-            </button>
-            <span className="text-sm text-gray-700">Mark as critical</span>
-          </div>
-
+          {formFields(addForm, setAddForm)}
           <div className="flex gap-3 pt-2">
             <button onClick={() => setAddOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold">Cancel</button>
-            <button onClick={saveAdd} disabled={saving || !addName || !addAmount || !addDueDate} className="flex-1 py-3 rounded-xl text-white font-semibold disabled:opacity-60" style={{ backgroundColor: '#2DB5AD' }}>
+            <button onClick={saveAdd} disabled={saving || !addForm.name || !addForm.amount || !addForm.dueDate}
+              className="flex-1 py-3 rounded-xl text-white font-semibold disabled:opacity-60" style={{ backgroundColor: '#2DB5AD' }}>
               {saving ? 'Adding…' : 'Add'}
             </button>
           </div>
