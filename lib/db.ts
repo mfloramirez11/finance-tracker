@@ -29,7 +29,7 @@ export const sql: NeonQueryFunction<false, false> = new Proxy(function () {} as 
 export async function rawSql(text: string, params?: unknown[]): Promise<Record<string, unknown>[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = getSql() as any
-  return db(text, params)
+  return db.query(text, params)
 }
 
 export type QueryResult<T> = T[]
