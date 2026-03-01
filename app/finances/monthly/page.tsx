@@ -489,6 +489,11 @@ export default function MonthlyPage() {
               {selectedBill.account && (
                 <span className="text-xs text-gray-400">{selectedBill.account}</span>
               )}
+              {selectedBill.is_autopay && (
+                <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8' }}>
+                  ⚡ Autopay
+                </span>
+              )}
             </div>
 
             <AmountInput
