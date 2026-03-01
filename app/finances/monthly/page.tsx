@@ -457,10 +457,6 @@ export default function MonthlyPage() {
                     <p className={`text-base font-bold ${bill.is_paid ? 'text-gray-400' : 'text-gray-900'}`}>
                       {amount !== null ? formatCurrency(amount) : <span className="text-gray-300">—</span>}
                     </p>
-                    {bill.actual_amount !== null && bill.default_amount !== null &&
-                      Number(bill.actual_amount) !== Number(bill.default_amount) && (
-                        <p className="text-xs text-gray-400 line-through">{formatCurrency(bill.default_amount)}</p>
-                      )}
                   </div>
                   {isAdmin && (
                     <button

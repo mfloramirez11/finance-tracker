@@ -57,7 +57,7 @@ export default function DebtsPage() {
 
   // Edit sheet
   const [editOpen, setEditOpen] = useState(false)
-  const [editForm, setEditForm] = useState({ name: '', balance: '', apr: '', minPayment: '', promoEndDate: '', hasPromo: false })
+  const [editForm, setEditForm] = useState({ name: '', balance: '', originalBalance: '', apr: '', minPayment: '', promoEndDate: '', hasPromo: false })
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -117,6 +117,7 @@ export default function DebtsPage() {
     setEditForm({
       name: debt.name,
       balance: String(debt.current_balance),
+      originalBalance: String(debt.original_balance ?? debt.current_balance),
       apr: hasPromo ? '' : String(apr * 100),
       minPayment: String(debt.min_payment ?? ''),
       promoEndDate: debt.promo_end_date ? debt.promo_end_date.split('T')[0] : '',
@@ -168,9 +169,7 @@ export default function DebtsPage() {
     if (!selected) return
     setSaving(true)
     const newBalance = parseFloat(editForm.balance)
-    const storedOriginal = parseFloat(String(selected.original_balance))
-    // If the new balance exceeds the original (e.g. refinanced to a larger loan), update original too
-    const originalBalance = newBalance > storedOriginal ? newBalance : storedOriginal
+    const originalBalance = parseFloat(editForm.originalBalance) || newBalance
     await fetch(`/api/finances/debts/${selected.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -483,6 +482,7 @@ export default function DebtsPage() {
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900" />
             </div>
             <AmountInput label="Current Balance" value={editForm.balance} onChange={v => setEditForm(f => ({ ...f, balance: v }))} />
+            <AmountInput label="Original / Starting Balance" value={editForm.originalBalance} onChange={v => setEditForm(f => ({ ...f, originalBalance: v }))} />
             <AmountInput label="Min Payment" value={editForm.minPayment} onChange={v => setEditForm(f => ({ ...f, minPayment: v }))} />
 
             {/* Promo toggle */}
