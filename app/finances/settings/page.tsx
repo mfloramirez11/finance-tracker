@@ -368,7 +368,7 @@ export default function SettingsPage() {
                   </div>
                   {newAccount.type === 'credit_card' && (
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Paid by (bank account)</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Bank account</label>
                       <select
                         value={newAccount.paid_by ?? ''}
                         onChange={e => setNewAccount(p => ({ ...p, paid_by: e.target.value || null }))}
@@ -482,9 +482,7 @@ function AccountRow({ account, onEdit, onDelete, deleting }: {
   deleting: boolean
 }) {
   const icon = account.type === 'credit_card' ? '💳' : '🏦'
-  const sub = account.type === 'credit_card' && account.paid_by
-    ? `Paid by ${account.paid_by}`
-    : account.last_four
+  const sub = account.last_four
     ? `••••${account.last_four}`
     : account.type === 'bank' ? 'Bank account' : 'Credit card'
 
@@ -555,9 +553,9 @@ function AccountEditRow({ account, bankAccounts, onChange, onSave, onCancel, sav
           onChange={e => onChange({ ...account, paid_by: e.target.value || null })}
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white"
         >
-          <option value="">Paid by: — None —</option>
+          <option value="">— None —</option>
           {bankAccounts.filter(b => b.id !== account.id).map(b => (
-            <option key={b.id} value={b.name}>Paid by: {b.name}</option>
+            <option key={b.id} value={b.name}>{b.name}</option>
           ))}
         </select>
       )}

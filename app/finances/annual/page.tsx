@@ -13,6 +13,12 @@ import { formatCurrency, formatDate, daysUntil } from '@/lib/finances/format'
 const CATEGORIES = ['Auto', 'Credit Card', 'Health', 'Housing', 'Insurance', 'Subscriptions', 'Tech', 'Other']
 const FILTER_CATS = ['All', ...CATEGORIES]
 
+interface Account {
+  id: string
+  name: string
+  type: string
+}
+
 interface AnnualItem {
   id: string
   name: string
@@ -41,6 +47,7 @@ export default function AnnualPage() {
   const [loading, setLoading] = useState(true)
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all')
   const [filterCat, setFilterCat] = useState('All')
+  const [accounts, setAccounts] = useState<Account[]>([])
 
   // Edit sheet
   const [editOpen, setEditOpen] = useState(false)
@@ -62,7 +69,15 @@ export default function AnnualPage() {
     setLoading(false)
   }, [year])
 
+  const fetchAccounts = useCallback(async () => {
+    const res = await fetch('/api/finances/accounts')
+    if (!res.ok) return
+    const json = await res.json()
+    setAccounts(json.data ?? [])
+  }, [])
+
   useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => { fetchAccounts() }, [fetchAccounts])
 
   function openEdit(item: AnnualItem) {
     setSelected(item)
@@ -139,6 +154,9 @@ export default function AnnualPage() {
     return true
   })
 
+  const bankAccounts = accounts.filter(a => a.type === 'bank')
+  const creditCards = accounts.filter(a => a.type === 'credit_card')
+
   const statItems = filterCat === 'All' ? (data?.items ?? []) : (data?.items ?? []).filter(i => i.category === filterCat)
   const displayTotal = statItems.reduce((s, i) => s + parseFloat(String(i.amount)), 0)
   const displayPaid = statItems.filter(i => i.is_paid).reduce((s, i) => s + parseFloat(String(i.amount)), 0)
@@ -182,14 +200,24 @@ export default function AnnualPage() {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Account</label>
-        <input
-          type="text"
+        <label className="block text-sm font-medium text-gray-700 mb-1">Account / Card</label>
+        <select
           value={form.account}
           onChange={e => setForm(f => ({ ...f, account: e.target.value }))}
-          className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900"
-          placeholder="e.g. Chase Manny"
-        />
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900 bg-white"
+        >
+          <option value="">— None —</option>
+          {bankAccounts.length > 0 && (
+            <optgroup label="Bank Accounts">
+              {bankAccounts.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
+            </optgroup>
+          )}
+          {creditCards.length > 0 && (
+            <optgroup label="Credit Cards">
+              {creditCards.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
+            </optgroup>
+          )}
+        </select>
       </div>
     </>
   )
