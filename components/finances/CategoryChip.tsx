@@ -1,6 +1,6 @@
 'use client'
 
-const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
+export const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
   Housing: { bg: '#1B2A4A', text: '#fff' },
   Auto: { bg: '#2563EB', text: '#fff' },
   Utilities: { bg: '#7C3AED', text: '#fff' },

@@ -24,16 +24,17 @@ export async function POST(req: NextRequest) {
   if (!authResult.authorized) return unauthorizedResponse(authResult.reason!)
 
   const body = await req.json()
-  const { name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order } = body
+  const { name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order, frequency, is_autopay } = body
 
   if (!name || !category || !billing_type) {
     return Response.json({ data: null, error: 'name, category, billing_type are required' }, { status: 400 })
   }
 
   const result = await sql`
-    INSERT INTO finance_bills (name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order)
+    INSERT INTO finance_bills (name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order, frequency, is_autopay)
     VALUES (${name}, ${category}, ${billing_type}, ${default_amount ?? null}, ${account ?? null},
-            ${due_day ?? null}, ${months_active ?? null}, ${notes ?? null}, ${sort_order ?? 0})
+            ${due_day ?? null}, ${months_active ?? null}, ${notes ?? null}, ${sort_order ?? 0},
+            ${frequency ?? 'Monthly'}, ${is_autopay ?? false})
     RETURNING *
   `
   return Response.json({ data: result[0], error: null }, { status: 201 })

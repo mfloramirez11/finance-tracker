@@ -230,6 +230,7 @@ export async function POST(req: NextRequest) {
     `
 
     await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS frequency TEXT DEFAULT 'Monthly'`
+    await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS is_autopay BOOLEAN DEFAULT false`
 
     // --- Dedup all seeded tables (keep oldest row per unique key) ---
     await sql`

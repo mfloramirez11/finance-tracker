@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react'
 import FinanceLayout from '@/components/finances/FinanceLayout'
 import BottomSheet from '@/components/finances/BottomSheet'
 import ProgressBar from '@/components/finances/ProgressBar'
-import CategoryChip from '@/components/finances/CategoryChip'
+import CategoryChip, { CATEGORY_COLORS } from '@/components/finances/CategoryChip'
 import AmountInput from '@/components/finances/AmountInput'
 import LoadingSkeleton from '@/components/finances/LoadingSkeleton'
 import { formatCurrency, shortMonthName } from '@/lib/finances/format'
@@ -19,6 +19,7 @@ interface BillRow {
   account: string | null
   due_day: string | null
   frequency: string | null
+  is_autopay: boolean
   actual_id: string | null
   actual_amount: number | null
   is_paid: boolean
@@ -105,6 +106,7 @@ export default function MonthlyPage() {
   const [editDueDay, setEditDueDay] = useState('')       // "1"–"31" or "Varies" or ""
   const [editFrequency, setEditFrequency] = useState('Monthly')
   const [editDefaultAmount, setEditDefaultAmount] = useState('')
+  const [editAutopay, setEditAutopay] = useState(false)
 
   const fetchBills = useCallback(async () => {
     setLoading(true)
@@ -143,6 +145,7 @@ export default function MonthlyPage() {
     setEditDueDay(parseDueDayToSelectValue(bill.due_day))
     setEditFrequency(bill.frequency ?? 'Monthly')
     setEditDefaultAmount(String(bill.default_amount ?? ''))
+    setEditAutopay(bill.is_autopay ?? false)
     setConfirmDelete(false)
     setSheetView('editBill')
     if (!sheetOpen) setSheetOpen(true)
@@ -157,6 +160,7 @@ export default function MonthlyPage() {
     setEditDueDay('')
     setEditFrequency('Monthly')
     setEditDefaultAmount('')
+    setEditAutopay(false)
     setSheetView('addBill')
     setSheetOpen(true)
   }
@@ -196,6 +200,7 @@ export default function MonthlyPage() {
         due_day: dueDayToSave,
         frequency: editFrequency,
         default_amount: editDefaultAmount ? parseFloat(editDefaultAmount) : null,
+        is_autopay: editAutopay,
       }),
     })
     setSaving(false)
@@ -218,6 +223,7 @@ export default function MonthlyPage() {
         due_day: dueDayToSave,
         frequency: editFrequency,
         default_amount: editDefaultAmount ? parseFloat(editDefaultAmount) : null,
+        is_autopay: editAutopay,
       }),
     })
     setSaving(false)
@@ -250,13 +256,6 @@ export default function MonthlyPage() {
     fetchBills()
   }
 
-  function accountDisplay(acctName: string | null) {
-    if (!acctName) return null
-    const acct = accounts.find(a => a.name === acctName)
-    if (acct?.type === 'credit_card' && acct.paid_by) return `${acctName} → ${acct.paid_by}`
-    return acctName
-  }
-
   // Sort all bills by due_day numerically
   const sortedBills = [...bills].sort((a, b) => parseDueDay(a.due_day) - parseDueDay(b.due_day))
 
@@ -266,10 +265,12 @@ export default function MonthlyPage() {
     return true
   })
 
-  const total = bills.reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
-  const paid = bills.filter(b => b.is_paid).reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
+  const statBills = filter === 'All' ? bills : bills.filter(b => b.category === filter)
+  const total = statBills.reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
+  const paid = statBills.filter(b => b.is_paid).reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
   const paidPct = total > 0 ? (paid / total) * 100 : 0
-  const unpaidCount = bills.filter(b => !b.is_paid).length
+  const unpaidCount = statBills.filter(b => !b.is_paid).length
+  const activeCatColor = filter !== 'All' ? (CATEGORY_COLORS[filter]?.bg ?? '#2DB5AD') : undefined
 
   const bankAccounts = accounts.filter(a => a.type === 'bank')
   const creditCards = accounts.filter(a => a.type === 'credit_card')
@@ -339,9 +340,9 @@ export default function MonthlyPage() {
           </div>
           <span className="text-sm font-medium text-gray-500">{paidPct.toFixed(0)}%</span>
         </div>
-        <ProgressBar value={paidPct} />
+        <ProgressBar value={paidPct} color={activeCatColor} />
         <div className="flex justify-between text-xs text-gray-400 mt-1.5">
-          <span>{bills.filter(b => b.is_paid).length} paid</span>
+          <span>{statBills.filter(b => b.is_paid).length} paid</span>
           <span>{unpaidCount} remaining</span>
         </div>
       </div>
@@ -385,18 +386,21 @@ export default function MonthlyPage() {
 
       {/* Filters */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-        {FILTER_CATS.map(cat => (
-          <button
-            key={cat}
-            onClick={() => setFilter(cat)}
-            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-            style={filter === cat
-              ? { backgroundColor: '#2DB5AD', color: '#fff', borderColor: '#2DB5AD' }
-              : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-          >
-            {cat}
-          </button>
-        ))}
+        {FILTER_CATS.map(cat => {
+          const catColor = cat === 'All' ? '#2DB5AD' : (CATEGORY_COLORS[cat]?.bg ?? '#2DB5AD')
+          return (
+            <button
+              key={cat}
+              onClick={() => setFilter(cat)}
+              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+              style={filter === cat
+                ? { backgroundColor: catColor, color: '#fff', borderColor: catColor }
+                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+            >
+              {cat}
+            </button>
+          )
+        })}
         <button
           onClick={() => setShowUnpaid(!showUnpaid)}
           className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
@@ -416,7 +420,6 @@ export default function MonthlyPage() {
           )}
           {filtered.map(bill => {
             const amount = bill.actual_amount ?? bill.default_amount
-            const acctDisplay = accountDisplay(bill.account)
             const dueLabel = dueDayOrdinal(bill.due_day)
             return (
               <div key={bill.bill_id} className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
@@ -436,10 +439,15 @@ export default function MonthlyPage() {
                       {bill.name}
                     </span>
                     <CategoryChip category={bill.category} />
+                    {bill.is_autopay && (
+                      <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8' }}>
+                        ⚡ Auto
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-400">
                     {dueLabel && <span>Due {dueLabel}</span>}
-                    {acctDisplay && <span className="truncate max-w-[130px]">{acctDisplay}</span>}
+                    {bill.account && <span className="truncate max-w-[130px]">{bill.account}</span>}
                     {bill.billing_type !== 'Fixed' && <span className="italic">{bill.billing_type}</span>}
                   </div>
                 </div>
@@ -479,7 +487,7 @@ export default function MonthlyPage() {
               <CategoryChip category={selectedBill.category} />
               <span className="text-xs text-gray-400">{selectedBill.billing_type}</span>
               {selectedBill.account && (
-                <span className="text-xs text-gray-400">{accountDisplay(selectedBill.account)}</span>
+                <span className="text-xs text-gray-400">{selectedBill.account}</span>
               )}
             </div>
 
@@ -593,7 +601,7 @@ export default function MonthlyPage() {
                 {creditCards.length > 0 && (
                   <optgroup label="Credit Cards">
                     {creditCards.map(a => (
-                      <option key={a.id} value={a.name}>{a.name}{a.paid_by ? ` → ${a.paid_by}` : ''}</option>
+                      <option key={a.id} value={a.name}>{a.name}</option>
                     ))}
                   </optgroup>
                 )}
@@ -623,6 +631,27 @@ export default function MonthlyPage() {
                 {FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}
               </select>
             </div>
+
+            <button
+              onClick={() => setEditAutopay(v => !v)}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border transition-colors text-left"
+              style={editAutopay
+                ? { borderColor: '#1D4ED8', backgroundColor: '#EFF6FF' }
+                : { borderColor: '#E5E7EB', backgroundColor: '#fff' }}
+            >
+              <div
+                className="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors"
+                style={editAutopay
+                  ? { backgroundColor: '#1D4ED8', borderColor: '#1D4ED8' }
+                  : { backgroundColor: 'transparent', borderColor: '#D1D5DB' }}
+              >
+                {editAutopay && <span className="text-white text-xs font-bold">✓</span>}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-800">⚡ Autopay enabled</p>
+                <p className="text-xs text-gray-400">This bill is paid automatically</p>
+              </div>
+            </button>
 
             <div className="flex gap-3 pt-2">
               <button onClick={() => setSheetOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm">

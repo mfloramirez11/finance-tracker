@@ -4,13 +4,14 @@ import { useEffect, useState, useCallback } from 'react'
 import FinanceLayout from '@/components/finances/FinanceLayout'
 import BottomSheet from '@/components/finances/BottomSheet'
 import AlertBadge from '@/components/finances/AlertBadge'
-import CategoryChip from '@/components/finances/CategoryChip'
+import CategoryChip, { CATEGORY_COLORS } from '@/components/finances/CategoryChip'
 import AmountInput from '@/components/finances/AmountInput'
 import ProgressBar from '@/components/finances/ProgressBar'
 import LoadingSkeleton from '@/components/finances/LoadingSkeleton'
 import { formatCurrency, formatDate, daysUntil } from '@/lib/finances/format'
 
 const CATEGORIES = ['Auto', 'Credit Card', 'Health', 'Housing', 'Insurance', 'Subscriptions', 'Tech', 'Other']
+const FILTER_CATS = ['All', ...CATEGORIES]
 
 interface AnnualItem {
   id: string
@@ -39,6 +40,7 @@ export default function AnnualPage() {
   const [data, setData] = useState<AnnualData | null>(null)
   const [loading, setLoading] = useState(true)
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all')
+  const [filterCat, setFilterCat] = useState('All')
 
   // Edit sheet
   const [editOpen, setEditOpen] = useState(false)
@@ -131,12 +133,17 @@ export default function AnnualPage() {
   }
 
   const filtered = (data?.items ?? []).filter(item => {
+    if (filterCat !== 'All' && item.category !== filterCat) return false
     if (filterPaid === 'paid') return item.is_paid
     if (filterPaid === 'unpaid') return !item.is_paid
     return true
   })
 
-  const paidPct = data ? (data.paid / (data.total || 1)) * 100 : 0
+  const statItems = filterCat === 'All' ? (data?.items ?? []) : (data?.items ?? []).filter(i => i.category === filterCat)
+  const displayTotal = statItems.reduce((s, i) => s + parseFloat(String(i.amount)), 0)
+  const displayPaid = statItems.filter(i => i.is_paid).reduce((s, i) => s + parseFloat(String(i.amount)), 0)
+  const paidPct = displayTotal > 0 ? (displayPaid / displayTotal) * 100 : 0
+  const activeCatColor = filterCat !== 'All' ? (CATEGORY_COLORS[filterCat]?.bg ?? '#2DB5AD') : undefined
 
   const formFields = (form: typeof EMPTY_EDIT, setForm: React.Dispatch<React.SetStateAction<typeof EMPTY_EDIT>>) => (
     <>
@@ -222,22 +229,41 @@ export default function AnnualPage() {
           <div className="grid grid-cols-3 gap-3 mb-3">
             <div>
               <p className="text-xs text-gray-400">Total</p>
-              <p className="text-base font-bold text-gray-900">{formatCurrency(data.total)}</p>
+              <p className="text-base font-bold text-gray-900">{formatCurrency(displayTotal)}</p>
             </div>
             <div>
               <p className="text-xs text-gray-400">Paid</p>
-              <p className="text-base font-bold" style={{ color: '#27AE60' }}>{formatCurrency(data.paid)}</p>
+              <p className="text-base font-bold" style={{ color: '#27AE60' }}>{formatCurrency(displayPaid)}</p>
             </div>
             <div>
               <p className="text-xs text-gray-400">Remaining</p>
-              <p className="text-base font-bold" style={{ color: '#D94F3D' }}>{formatCurrency(data.remaining)}</p>
+              <p className="text-base font-bold" style={{ color: '#D94F3D' }}>{formatCurrency(displayTotal - displayPaid)}</p>
             </div>
           </div>
-          <ProgressBar value={paidPct} />
+          <ProgressBar value={paidPct} color={activeCatColor} />
         </div>
       )}
 
-      {/* Filter tabs */}
+      {/* Category filters */}
+      <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+        {FILTER_CATS.map(cat => {
+          const catColor = cat === 'All' ? '#2DB5AD' : (CATEGORY_COLORS[cat]?.bg ?? '#2DB5AD')
+          return (
+            <button
+              key={cat}
+              onClick={() => setFilterCat(cat)}
+              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+              style={filterCat === cat
+                ? { backgroundColor: catColor, color: '#fff', borderColor: catColor }
+                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+            >
+              {cat}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Paid/unpaid filter tabs */}
       <div className="flex gap-2 mb-4">
         {(['all', 'unpaid', 'paid'] as const).map(f => (
           <button
