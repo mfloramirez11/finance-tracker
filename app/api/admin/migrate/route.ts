@@ -238,6 +238,10 @@ export async function POST(req: NextRequest) {
     await sql`ALTER TABLE finance_debt_payments ADD COLUMN IF NOT EXISTS late_fees NUMERIC(10,2)`
     await sql`ALTER TABLE finance_debt_payments ADD COLUMN IF NOT EXISTS misc_fees NUMERIC(10,2)`
 
+    // --- Migration 005: owner label on bills and annual items ---
+    await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS owner TEXT`
+    await sql`ALTER TABLE finance_annual_items ADD COLUMN IF NOT EXISTS owner TEXT`
+
     // --- Dedup all seeded tables (keep oldest row per unique key) ---
     await sql`
       DELETE FROM finance_debts

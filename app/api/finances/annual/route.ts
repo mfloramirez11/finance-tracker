@@ -26,15 +26,15 @@ export async function POST(req: NextRequest) {
   if (!authResult.authorized) return unauthorizedResponse(authResult.reason!)
 
   const body = await req.json()
-  const { name, category, amount, due_date, account, year, notes, is_critical } = body
+  const { name, category, amount, due_date, account, year, notes, is_critical, owner } = body
 
   if (!name || !category || !amount || !due_date || !year) {
     return Response.json({ data: null, error: 'name, category, amount, due_date, year are required' }, { status: 400 })
   }
 
   const result = await sql`
-    INSERT INTO finance_annual_items (name, category, amount, due_date, account, year, notes, is_critical)
-    VALUES (${name}, ${category}, ${amount}, ${due_date}, ${account ?? null}, ${year}, ${notes ?? null}, ${is_critical ?? false})
+    INSERT INTO finance_annual_items (name, category, amount, due_date, account, year, notes, is_critical, owner)
+    VALUES (${name}, ${category}, ${amount}, ${due_date}, ${account ?? null}, ${year}, ${notes ?? null}, ${is_critical ?? false}, ${owner ?? null})
     RETURNING *
   `
   return Response.json({ data: result[0], error: null }, { status: 201 })

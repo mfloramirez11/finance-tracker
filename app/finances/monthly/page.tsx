@@ -25,6 +25,7 @@ interface BillRow {
   is_paid: boolean
   paid_date: string | null
   actual_notes: string | null
+  owner: string | null
 }
 
 interface Account {
@@ -36,6 +37,7 @@ interface Account {
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 const FILTER_CATS = ['All', 'Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
+const OWNER_LABELS = ['Manny', 'Manny & Celesti', 'Family Flores']
 const BILL_CATS = ['Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
 const FREQUENCIES = ['Monthly', 'Bi-Monthly', 'Bi-Weekly', 'Quarterly', 'Semi-Annual', 'Annual', 'Varies']
 const DUE_DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1))
@@ -84,6 +86,7 @@ export default function MonthlyPage() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('All')
+  const [ownerFilter, setOwnerFilter] = useState('All')
   const [showUnpaid, setShowUnpaid] = useState(false)
 
   // Sheet
@@ -107,6 +110,7 @@ export default function MonthlyPage() {
   const [editFrequency, setEditFrequency] = useState('Monthly')
   const [editDefaultAmount, setEditDefaultAmount] = useState('')
   const [editAutopay, setEditAutopay] = useState(false)
+  const [editOwner, setEditOwner] = useState('')
 
   const fetchBills = useCallback(async () => {
     setLoading(true)
@@ -146,6 +150,7 @@ export default function MonthlyPage() {
     setEditFrequency(bill.frequency ?? 'Monthly')
     setEditDefaultAmount(String(bill.default_amount ?? ''))
     setEditAutopay(bill.is_autopay ?? false)
+    setEditOwner(bill.owner ?? '')
     setConfirmDelete(false)
     setSheetView('editBill')
     if (!sheetOpen) setSheetOpen(true)
@@ -161,6 +166,7 @@ export default function MonthlyPage() {
     setEditFrequency('Monthly')
     setEditDefaultAmount('')
     setEditAutopay(false)
+    setEditOwner('')
     setSheetView('addBill')
     setSheetOpen(true)
   }
@@ -201,6 +207,7 @@ export default function MonthlyPage() {
         frequency: editFrequency,
         default_amount: editDefaultAmount ? parseFloat(editDefaultAmount) : null,
         is_autopay: editAutopay,
+        owner: editOwner || null,
       }),
     })
     setSaving(false)
@@ -224,6 +231,7 @@ export default function MonthlyPage() {
         frequency: editFrequency,
         default_amount: editDefaultAmount ? parseFloat(editDefaultAmount) : null,
         is_autopay: editAutopay,
+        owner: editOwner || null,
       }),
     })
     setSaving(false)
@@ -260,12 +268,17 @@ export default function MonthlyPage() {
   const sortedBills = [...bills].sort((a, b) => parseDueDay(a.due_day) - parseDueDay(b.due_day))
 
   const filtered = sortedBills.filter(b => {
+    if (ownerFilter !== 'All' && b.owner !== ownerFilter) return false
     if (filter !== 'All' && b.category !== filter) return false
     if (showUnpaid && b.is_paid) return false
     return true
   })
 
-  const statBills = filter === 'All' ? bills : bills.filter(b => b.category === filter)
+  const statBills = bills.filter(b => {
+    if (ownerFilter !== 'All' && b.owner !== ownerFilter) return false
+    if (filter !== 'All' && b.category !== filter) return false
+    return true
+  })
   const total = statBills.reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
   const paid = statBills.filter(b => b.is_paid).reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
   const paidPct = total > 0 ? (paid / total) * 100 : 0
@@ -384,7 +397,23 @@ export default function MonthlyPage() {
         </div>
       )}
 
-      {/* Filters */}
+      {/* Owner filters */}
+      <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
+        {(['All', ...OWNER_LABELS] as string[]).map(o => (
+          <button
+            key={o}
+            onClick={() => setOwnerFilter(o)}
+            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+            style={ownerFilter === o
+              ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
+              : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+          >
+            {o === 'All' ? '👥 All' : o}
+          </button>
+        ))}
+      </div>
+
+      {/* Category filters */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
         {FILTER_CATS.map(cat => {
           const catColor = cat === 'All' ? '#2DB5AD' : (CATEGORY_COLORS[cat]?.bg ?? '#2DB5AD')
@@ -563,6 +592,18 @@ export default function MonthlyPage() {
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
               >
                 {BILL_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Owner</label>
+              <select
+                value={editOwner}
+                onChange={e => setEditOwner(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+              >
+                <option value="">— None —</option>
+                {OWNER_LABELS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
 

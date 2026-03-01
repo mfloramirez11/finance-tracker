@@ -12,6 +12,7 @@ import { formatCurrency, formatDate, daysUntil } from '@/lib/finances/format'
 
 const CATEGORIES = ['Auto', 'Credit Card', 'Health', 'Housing', 'Insurance', 'Subscriptions', 'Tech', 'Other']
 const FILTER_CATS = ['All', ...CATEGORIES]
+const OWNER_LABELS = ['Manny', 'Manny & Celesti', 'Family Flores']
 
 interface Account {
   id: string
@@ -29,6 +30,7 @@ interface AnnualItem {
   is_paid: boolean
   paid_date: string | null
   notes: string | null
+  owner: string | null
 }
 
 interface AnnualData {
@@ -38,7 +40,7 @@ interface AnnualData {
   remaining: number
 }
 
-const EMPTY_EDIT = { name: '', category: 'Auto', amount: '', dueDate: '', account: '', isPaid: false, paidDate: '' }
+const EMPTY_EDIT = { name: '', category: 'Auto', amount: '', dueDate: '', account: '', isPaid: false, paidDate: '', owner: '' }
 
 export default function AnnualPage() {
   const now = new Date()
@@ -47,6 +49,7 @@ export default function AnnualPage() {
   const [loading, setLoading] = useState(true)
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all')
   const [filterCat, setFilterCat] = useState('All')
+  const [filterOwner, setFilterOwner] = useState('All')
   const [accounts, setAccounts] = useState<Account[]>([])
 
   // Edit sheet
@@ -89,6 +92,7 @@ export default function AnnualPage() {
       account: item.account ?? '',
       isPaid: item.is_paid,
       paidDate: item.paid_date ? item.paid_date.split('T')[0] : new Date().toISOString().split('T')[0],
+      owner: item.owner ?? '',
     })
     setConfirmDelete(false)
     setEditOpen(true)
@@ -108,6 +112,7 @@ export default function AnnualPage() {
         account: editForm.account || null,
         is_paid: editForm.isPaid,
         paid_date: editForm.isPaid ? editForm.paidDate : null,
+        owner: editForm.owner || null,
       }),
     })
     setSaving(false)
@@ -139,6 +144,7 @@ export default function AnnualPage() {
         account: addForm.account || null,
         year,
         is_critical: false,
+        owner: addForm.owner || null,
       }),
     })
     setSaving(false)
@@ -148,6 +154,7 @@ export default function AnnualPage() {
   }
 
   const filtered = (data?.items ?? []).filter(item => {
+    if (filterOwner !== 'All' && item.owner !== filterOwner) return false
     if (filterCat !== 'All' && item.category !== filterCat) return false
     if (filterPaid === 'paid') return item.is_paid
     if (filterPaid === 'unpaid') return !item.is_paid
@@ -157,7 +164,11 @@ export default function AnnualPage() {
   const bankAccounts = accounts.filter(a => a.type === 'bank')
   const creditCards = accounts.filter(a => a.type === 'credit_card')
 
-  const statItems = filterCat === 'All' ? (data?.items ?? []) : (data?.items ?? []).filter(i => i.category === filterCat)
+  const statItems = (data?.items ?? []).filter(i => {
+    if (filterOwner !== 'All' && i.owner !== filterOwner) return false
+    if (filterCat !== 'All' && i.category !== filterCat) return false
+    return true
+  })
   const displayTotal = statItems.reduce((s, i) => s + parseFloat(String(i.amount)), 0)
   const displayPaid = statItems.filter(i => i.is_paid).reduce((s, i) => s + parseFloat(String(i.amount)), 0)
   const paidPct = displayTotal > 0 ? (displayPaid / displayTotal) * 100 : 0
@@ -184,6 +195,18 @@ export default function AnnualPage() {
           className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900 bg-white"
         >
           {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Owner</label>
+        <select
+          value={form.owner}
+          onChange={e => setForm(f => ({ ...f, owner: e.target.value }))}
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900 bg-white"
+        >
+          <option value="">— None —</option>
+          {OWNER_LABELS.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       </div>
 
@@ -271,6 +294,22 @@ export default function AnnualPage() {
           <ProgressBar value={paidPct} color={activeCatColor} />
         </div>
       )}
+
+      {/* Owner filters */}
+      <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
+        {(['All', ...OWNER_LABELS] as string[]).map(o => (
+          <button
+            key={o}
+            onClick={() => setFilterOwner(o)}
+            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+            style={filterOwner === o
+              ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
+              : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+          >
+            {o === 'All' ? '👥 All' : o}
+          </button>
+        ))}
+      </div>
 
       {/* Category filters */}
       <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
