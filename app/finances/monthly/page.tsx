@@ -37,8 +37,40 @@ const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 const FILTER_CATS = ['All', 'Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
 const BILL_CATS = ['Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
 const FREQUENCIES = ['Monthly', 'Bi-Monthly', 'Bi-Weekly', 'Quarterly', 'Semi-Annual', 'Annual', 'Varies']
+const DUE_DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1))
 
 type SheetView = 'payment' | 'editBill' | 'addBill'
+
+// Parse due_day (may be "1st", "~15th", "15", etc.) → number for sorting (99 = unknown)
+function parseDueDay(d: string | null): number {
+  if (!d) return 99
+  const match = d.match(/\d+/)
+  if (!match) return 99
+  const n = parseInt(match[0])
+  return n >= 1 && n <= 31 ? n : 99
+}
+
+// Convert due_day string → display string ("15" or "15th" → "15th")
+function dueDayOrdinal(d: string | null): string | null {
+  const n = parseDueDay(d)
+  if (n === 99) return d  // pass through "Varies", "Monthly", etc.
+  if (n === 11 || n === 12 || n === 13) return `${n}th`
+  switch (n % 10) {
+    case 1: return `${n}st`
+    case 2: return `${n}nd`
+    case 3: return `${n}rd`
+    default: return `${n}th`
+  }
+}
+
+// Parse existing text due_day (e.g. "1st", "~18th") into a select value
+function parseDueDayToSelectValue(d: string | null): string {
+  if (!d) return ''
+  const match = d.match(/\d+/)
+  if (!match) return 'Varies'
+  const n = parseInt(match[0])
+  return n >= 1 && n <= 31 ? String(n) : 'Varies'
+}
 
 export default function MonthlyPage() {
   const { data: session } = useSession()
@@ -65,12 +97,12 @@ export default function MonthlyPage() {
   const [editPaid, setEditPaid] = useState(false)
   const [editDate, setEditDate] = useState('')
 
-  // Bill definition edit
+  // Bill definition edit/add
   const [editName, setEditName] = useState('')
   const [editCategory, setEditCategory] = useState('Housing')
   const [editBillingType, setEditBillingType] = useState('Fixed')
   const [editAccount, setEditAccount] = useState('')
-  const [editDueDay, setEditDueDay] = useState('')
+  const [editDueDay, setEditDueDay] = useState('')       // "1"–"31" or "Varies" or ""
   const [editFrequency, setEditFrequency] = useState('Monthly')
   const [editDefaultAmount, setEditDefaultAmount] = useState('')
 
@@ -84,6 +116,7 @@ export default function MonthlyPage() {
 
   const fetchAccounts = useCallback(async () => {
     const res = await fetch('/api/finances/accounts')
+    if (!res.ok) return
     const json = await res.json()
     setAccounts(json.data ?? [])
   }, [])
@@ -95,7 +128,7 @@ export default function MonthlyPage() {
     setSelectedBill(bill)
     setEditAmount(String(bill.actual_amount ?? bill.default_amount ?? ''))
     setEditPaid(bill.is_paid ?? false)
-    setEditDate(bill.paid_date ? bill.paid_date.split('T')[0] : new Date().toISOString().split('T')[0])
+    setEditDate(bill.paid_date ? bill.paid_date.split('T')[0] : now.toISOString().split('T')[0])
     setConfirmDelete(false)
     setSheetView('payment')
     setSheetOpen(true)
@@ -107,7 +140,7 @@ export default function MonthlyPage() {
     setEditCategory(bill.category)
     setEditBillingType(bill.billing_type === 'Fixed' ? 'Fixed' : 'Variable')
     setEditAccount(bill.account ?? '')
-    setEditDueDay(bill.due_day ?? '')
+    setEditDueDay(parseDueDayToSelectValue(bill.due_day))
     setEditFrequency(bill.frequency ?? 'Monthly')
     setEditDefaultAmount(String(bill.default_amount ?? ''))
     setConfirmDelete(false)
@@ -150,6 +183,8 @@ export default function MonthlyPage() {
   async function saveBillEdit() {
     if (!selectedBill) return
     setSaving(true)
+    // Store due_day as plain number or "Varies"
+    const dueDayToSave = editDueDay === 'Varies' ? 'Varies' : editDueDay || null
     await fetch(`/api/finances/bills/${selectedBill.bill_id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -158,7 +193,7 @@ export default function MonthlyPage() {
         category: editCategory,
         billing_type: editBillingType,
         account: editAccount || null,
-        due_day: editDueDay || null,
+        due_day: dueDayToSave,
         frequency: editFrequency,
         default_amount: editDefaultAmount ? parseFloat(editDefaultAmount) : null,
       }),
@@ -171,6 +206,7 @@ export default function MonthlyPage() {
   async function addBill() {
     if (!editName) return
     setSaving(true)
+    const dueDayToSave = editDueDay === 'Varies' ? 'Varies' : editDueDay || null
     await fetch('/api/finances/bills', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -179,7 +215,7 @@ export default function MonthlyPage() {
         category: editCategory,
         billing_type: editBillingType,
         account: editAccount || null,
-        due_day: editDueDay || null,
+        due_day: dueDayToSave,
         frequency: editFrequency,
         default_amount: editDefaultAmount ? parseFloat(editDefaultAmount) : null,
       }),
@@ -208,7 +244,7 @@ export default function MonthlyPage() {
         year, month,
         amount: bill.actual_amount ?? bill.default_amount,
         is_paid: newPaid,
-        paid_date: newPaid ? new Date().toISOString().split('T')[0] : null,
+        paid_date: newPaid ? now.toISOString().split('T')[0] : null,
       }),
     })
     fetchBills()
@@ -221,7 +257,10 @@ export default function MonthlyPage() {
     return acctName
   }
 
-  const filtered = bills.filter(b => {
+  // Sort all bills by due_day numerically
+  const sortedBills = [...bills].sort((a, b) => parseDueDay(a.due_day) - parseDueDay(b.due_day))
+
+  const filtered = sortedBills.filter(b => {
     if (filter !== 'All' && b.category !== filter) return false
     if (showUnpaid && b.is_paid) return false
     return true
@@ -236,6 +275,22 @@ export default function MonthlyPage() {
   const creditCards = accounts.filter(a => a.type === 'credit_card')
 
   const sheetTitle = sheetView === 'addBill' ? 'Add Bill' : sheetView === 'editBill' ? 'Edit Bill' : (selectedBill?.name ?? '')
+
+  // "Coming Up" — unpaid bills due from today onwards (only relevant for current month)
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1
+  const todayDay = now.getDate()
+  const comingUp = isCurrentMonth
+    ? sortedBills
+        .filter(b => !b.is_paid && parseDueDay(b.due_day) >= todayDay && parseDueDay(b.due_day) <= 31)
+        .slice(0, 4)
+    : []
+
+  // Due-day select options
+  const DUE_DAY_OPTIONS = [
+    { value: '', label: '— None —' },
+    ...DUE_DAYS.map(d => ({ value: d, label: dueDayOrdinal(d) ?? d })),
+    { value: 'Varies', label: 'Varies' },
+  ]
 
   return (
     <FinanceLayout
@@ -291,6 +346,43 @@ export default function MonthlyPage() {
         </div>
       </div>
 
+      {/* Coming Up — current month only */}
+      {!loading && comingUp.length > 0 && filter === 'All' && !showUnpaid && (
+        <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Coming Up</p>
+          <div className="space-y-2">
+            {comingUp.map(bill => {
+              const dayNum = parseDueDay(bill.due_day)
+              const daysLeft = dayNum - todayDay
+              const amount = bill.actual_amount ?? bill.default_amount
+              return (
+                <div key={bill.bill_id} className="flex items-center justify-between" onClick={() => openPaymentSheet(bill)}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{bill.name}</p>
+                    <p className="text-xs text-gray-400">Due {dueDayOrdinal(bill.due_day)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-2 shrink-0">
+                    {amount !== null && (
+                      <span className="text-sm font-semibold text-gray-900">{formatCurrency(amount)}</span>
+                    )}
+                    <span
+                      className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                      style={daysLeft === 0
+                        ? { backgroundColor: '#FEE2E2', color: '#D94F3D' }
+                        : daysLeft <= 3
+                        ? { backgroundColor: '#FEF3C7', color: '#92400E' }
+                        : { backgroundColor: '#F0FDF4', color: '#166534' }}
+                    >
+                      {daysLeft === 0 ? 'Today' : `${daysLeft}d`}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
         {FILTER_CATS.map(cat => (
@@ -325,6 +417,7 @@ export default function MonthlyPage() {
           {filtered.map(bill => {
             const amount = bill.actual_amount ?? bill.default_amount
             const acctDisplay = accountDisplay(bill.account)
+            const dueLabel = dueDayOrdinal(bill.due_day)
             return (
               <div key={bill.bill_id} className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
                 <button
@@ -345,7 +438,7 @@ export default function MonthlyPage() {
                     <CategoryChip category={bill.category} />
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-400">
-                    {bill.due_day && <span>Due {bill.due_day}</span>}
+                    {dueLabel && <span>Due {dueLabel}</span>}
                     {acctDisplay && <span className="truncate max-w-[130px]">{acctDisplay}</span>}
                     {bill.billing_type !== 'Fixed' && <span className="italic">{bill.billing_type}</span>}
                   </div>
@@ -423,28 +516,15 @@ export default function MonthlyPage() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setSheetOpen(false)}
-                className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveActual}
-                disabled={saving}
-                className="flex-1 py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-60"
-                style={{ backgroundColor: '#1B2A4A' }}
-              >
+              <button onClick={() => setSheetOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm">Cancel</button>
+              <button onClick={saveActual} disabled={saving} className="flex-1 py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-60" style={{ backgroundColor: '#1B2A4A' }}>
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
 
             {isAdmin && (
               <div className="border-t border-gray-100 pt-3">
-                <button
-                  onClick={() => switchToEditBill(selectedBill)}
-                  className="w-full py-2.5 rounded-xl border border-gray-200 text-gray-700 font-medium text-sm"
-                >
+                <button onClick={() => switchToEditBill(selectedBill)} className="w-full py-2.5 rounded-xl border border-gray-200 text-gray-700 font-medium text-sm">
                   ✏️ Edit Bill Details
                 </button>
               </div>
@@ -452,130 +532,8 @@ export default function MonthlyPage() {
           </div>
         )}
 
-        {/* EDIT BILL VIEW */}
-        {sheetView === 'editBill' && (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Bill Name</label>
-              <input
-                type="text"
-                value={editName}
-                onChange={e => setEditName(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <select
-                value={editCategory}
-                onChange={e => setEditCategory(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              >
-                {BILL_CATS.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
-              <div className="flex rounded-xl border border-gray-200 overflow-hidden">
-                {['Fixed', 'Variable'].map(t => (
-                  <button
-                    key={t}
-                    onClick={() => setEditBillingType(t)}
-                    className="flex-1 py-2.5 text-sm font-semibold transition-colors"
-                    style={editBillingType === t
-                      ? { backgroundColor: '#1B2A4A', color: '#fff' }
-                      : { backgroundColor: '#fff', color: '#6B7280' }}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <AmountInput label="Default Amount" value={editDefaultAmount} onChange={setEditDefaultAmount} placeholder="0.00" />
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Account / Card</label>
-              <select
-                value={editAccount}
-                onChange={e => setEditAccount(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              >
-                <option value="">— None —</option>
-                {bankAccounts.length > 0 && (
-                  <optgroup label="Bank Accounts">
-                    {bankAccounts.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-                  </optgroup>
-                )}
-                {creditCards.length > 0 && (
-                  <optgroup label="Credit Cards">
-                    {creditCards.map(a => (
-                      <option key={a.id} value={a.name}>{a.name}{a.paid_by ? ` → ${a.paid_by}` : ''}</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Due Day</label>
-              <input
-                type="text"
-                value={editDueDay}
-                onChange={e => setEditDueDay(e.target.value)}
-                placeholder="e.g. 1st, 15th, ~18th"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Frequency</label>
-              <select
-                value={editFrequency}
-                onChange={e => setEditFrequency(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              >
-                {FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}
-              </select>
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setSheetOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm">
-                Cancel
-              </button>
-              <button
-                onClick={saveBillEdit}
-                disabled={saving || !editName}
-                className="flex-1 py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-60"
-                style={{ backgroundColor: '#1B2A4A' }}
-              >
-                {saving ? 'Saving…' : 'Save Changes'}
-              </button>
-            </div>
-
-            <div className="pt-1">
-              {!confirmDelete ? (
-                <button onClick={() => setConfirmDelete(true)} className="w-full py-2.5 rounded-xl text-red-500 font-medium text-sm border border-red-100">
-                  Delete Bill
-                </button>
-              ) : (
-                <div className="flex gap-2">
-                  <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm">
-                    Cancel
-                  </button>
-                  <button onClick={deleteBill} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-semibold text-sm">
-                    {saving ? 'Deleting…' : 'Confirm Delete'}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ADD BILL VIEW */}
-        {sheetView === 'addBill' && (
+        {/* EDIT / ADD BILL FORM (shared layout) */}
+        {(sheetView === 'editBill' || sheetView === 'addBill') && (
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Bill Name</label>
@@ -643,14 +601,16 @@ export default function MonthlyPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Due Day</label>
-              <input
-                type="text"
+              <label className="block text-sm font-medium text-gray-700 mb-1">Due Day of Month</label>
+              <select
                 value={editDueDay}
                 onChange={e => setEditDueDay(e.target.value)}
-                placeholder="e.g. 1st, 15th, ~18th"
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              />
+              >
+                {DUE_DAY_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -669,14 +629,33 @@ export default function MonthlyPage() {
                 Cancel
               </button>
               <button
-                onClick={addBill}
+                onClick={sheetView === 'editBill' ? saveBillEdit : addBill}
                 disabled={saving || !editName}
                 className="flex-1 py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-60"
                 style={{ backgroundColor: '#1B2A4A' }}
               >
-                {saving ? 'Adding…' : 'Add Bill'}
+                {saving ? 'Saving…' : sheetView === 'editBill' ? 'Save Changes' : 'Add Bill'}
               </button>
             </div>
+
+            {sheetView === 'editBill' && (
+              <div className="pt-1">
+                {!confirmDelete ? (
+                  <button onClick={() => setConfirmDelete(true)} className="w-full py-2.5 rounded-xl text-red-500 font-medium text-sm border border-red-100">
+                    Delete Bill
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm">
+                      Cancel
+                    </button>
+                    <button onClick={deleteBill} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-semibold text-sm">
+                      {saving ? 'Deleting…' : 'Confirm Delete'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </BottomSheet>

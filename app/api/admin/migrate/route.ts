@@ -147,30 +147,30 @@ export async function POST(req: NextRequest) {
       ON CONFLICT (key) DO NOTHING
     `
 
-    // Seed bills
+    // Seed bills (due_day stored as plain number string for proper sorting)
     await sql`
       INSERT INTO finance_bills (name, category, billing_type, default_amount, account, due_day, months_active, sort_order) VALUES
-        ('Mortgage', 'Housing', 'Fixed', 4244.82, 'Robinhood [GC]', '1st', NULL, 1),
-        ('Toyota Loan', 'Auto', 'Fixed', 756.24, 'Ally FloHao', '12th', NULL, 2),
-        ('AT&T Fiber', 'Utilities', 'Fixed', 65.00, 'Apple Card→Chase', '25th', NULL, 3),
-        ('PG&E', 'Utilities', 'Variable', NULL, 'Apple Card→Chase', '~18th', NULL, 4),
-        ('EBMUD Water', 'Utilities', 'Bi-Monthly', NULL, 'Apple Card→Chase', '~15th', ARRAY[1,3,5,7,9,11], 5),
+        ('Mortgage', 'Housing', 'Fixed', 4244.82, 'Robinhood [GC]', '1', NULL, 1),
+        ('Toyota Loan', 'Auto', 'Fixed', 756.24, 'Ally FloHao', '12', NULL, 2),
+        ('AT&T Fiber', 'Utilities', 'Fixed', 65.00, 'Apple Card→Chase', '25', NULL, 3),
+        ('PG&E', 'Utilities', 'Variable', NULL, 'Apple Card→Chase', '18', NULL, 4),
+        ('EBMUD Water', 'Utilities', 'Bi-Monthly', NULL, 'Apple Card→Chase', '15', ARRAY[1,3,5,7,9,11], 5),
         ('Republic Services', 'Utilities', 'Quarterly', NULL, 'Ally FloHao', 'Varies', ARRAY[1,4,7,10], 6),
-        ('AT&T Wireless', 'Wireless', 'Fixed', 153.96, 'Apple Card→Chase', '11th', NULL, 7),
-        ('Pet Insurance', 'Insurance', 'Variable', 102.38, 'Apple Card→Chase', 'Monthly', NULL, 8),
-        ('Auto Insurance (Geico)', 'Insurance', 'Variable', NULL, 'Ally FloHao', 'Monthly', NULL, 9),
-        ('BofA Atmos Ring', 'Debt', 'Variable', 300.00, 'Chase Manny', 'Monthly', NULL, 10),
-        ('FIFA Installments', 'Debt', 'Fixed', 155.00, 'Chase Manny', 'Monthly', NULL, 11),
-        ('Student Loan', 'Debt', 'Fixed', 150.00, 'Auto', 'Monthly', NULL, 12),
-        ('Apple Subscriptions', 'Subscriptions', 'Fixed', 57.94, 'Chase Manny', 'Monthly', NULL, 13),
-        ('Netflix', 'Subscriptions', 'Variable', 17.00, 'Chase Manny', 'Monthly', NULL, 14),
-        ('Disney+', 'Subscriptions', 'Variable', 8.00, 'Chase Manny', 'Monthly', NULL, 15),
-        ('Hulu', 'Subscriptions', 'Variable', 8.00, 'Chase Manny', 'Monthly', NULL, 16),
-        ('Max (HBO)', 'Subscriptions', 'Variable', 10.00, 'Chase Manny', 'Monthly', NULL, 17),
-        ('Spotify', 'Subscriptions', 'Variable', 11.00, 'Chase Manny', 'Monthly', NULL, 18),
-        ('ChatGPT', 'Subscriptions', 'Variable', 20.00, 'Chase Manny', 'Monthly', NULL, 19),
-        ('Parent Support', 'Family', 'Fixed', 50.00, 'SoFi Family', 'Bi-wkly', NULL, 20),
-        ('Bro Support', 'Family', 'Fixed', 25.00, 'SoFi Bro', 'Bi-wkly', NULL, 21)
+        ('AT&T Wireless', 'Wireless', 'Fixed', 153.96, 'Apple Card→Chase', '11', NULL, 7),
+        ('Pet Insurance', 'Insurance', 'Variable', 102.38, 'Apple Card→Chase', NULL, NULL, 8),
+        ('Auto Insurance (Geico)', 'Insurance', 'Variable', NULL, 'Ally FloHao', NULL, NULL, 9),
+        ('BofA Atmos Ring', 'Debt', 'Variable', 300.00, 'Chase Manny', NULL, NULL, 10),
+        ('FIFA Installments', 'Debt', 'Fixed', 155.00, 'Chase Manny', NULL, NULL, 11),
+        ('Student Loan', 'Debt', 'Fixed', 150.00, 'Auto', NULL, NULL, 12),
+        ('Apple Subscriptions', 'Subscriptions', 'Fixed', 57.94, 'Chase Manny', NULL, NULL, 13),
+        ('Netflix', 'Subscriptions', 'Variable', 17.00, 'Chase Manny', NULL, NULL, 14),
+        ('Disney+', 'Subscriptions', 'Variable', 8.00, 'Chase Manny', NULL, NULL, 15),
+        ('Hulu', 'Subscriptions', 'Variable', 8.00, 'Chase Manny', NULL, NULL, 16),
+        ('Max (HBO)', 'Subscriptions', 'Variable', 10.00, 'Chase Manny', NULL, NULL, 17),
+        ('Spotify', 'Subscriptions', 'Variable', 11.00, 'Chase Manny', NULL, NULL, 18),
+        ('ChatGPT', 'Subscriptions', 'Variable', 20.00, 'Chase Manny', NULL, NULL, 19),
+        ('Parent Support', 'Family', 'Fixed', 50.00, 'SoFi Family', NULL, NULL, 20),
+        ('Bro Support', 'Family', 'Fixed', 25.00, 'SoFi Bro', NULL, NULL, 21)
       ON CONFLICT DO NOTHING
     `
 

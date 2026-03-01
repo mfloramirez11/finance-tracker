@@ -36,9 +36,6 @@ export default function DashboardPage() {
 
   const paidPct = data ? (data.monthly.paid / (data.monthly.total || 1)) * 100 : 0
   const annualPaidPct = data ? (data.annual.paid / (data.annual.total || 1)) * 100 : 0
-  const emergencyTarget = parseFloat(data?.settings?.emergency_fund_target ?? '50000')
-  const emergencyCurrent = parseFloat(data?.settings?.emergency_fund_current ?? '0')
-  const emergencyPct = (emergencyCurrent / emergencyTarget) * 100
 
   return (
     <FinanceLayout title="Dashboard">
@@ -65,26 +62,6 @@ export default function DashboardPage() {
               <AlertBadge days={data.debts.bofaDaysLeft} />
             </div>
           )}
-
-          {/* Income overview */}
-          <SummaryCard title="Monthly Cash Flow">
-            <div className="flex items-end justify-between mb-2">
-              <div>
-                <p className="text-2xl font-bold" style={{ color: '#27AE60' }}>{formatCurrency(data.income.monthlyIncome)}</p>
-                <p className="text-xs text-gray-400 mt-0.5">avg monthly income</p>
-              </div>
-              <div className="text-right">
-                <p className="text-lg font-semibold" style={{ color: data.monthly.leftover >= 0 ? '#27AE60' : '#D94F3D' }}>
-                  {formatCurrency(data.monthly.leftover)}
-                </p>
-                <p className="text-xs text-gray-400">leftover</p>
-              </div>
-            </div>
-            <div className="flex justify-between text-sm text-gray-500 mt-2 pt-2 border-t border-gray-100">
-              <span>Bi-weekly: {formatCurrency(data.income.biweeklyPay)}</span>
-              <span>Bills: {formatCurrency(data.monthly.total)}</span>
-            </div>
-          </SummaryCard>
 
           {/* Monthly bills progress */}
           <SummaryCard
@@ -158,17 +135,6 @@ export default function DashboardPage() {
             </div>
           </SummaryCard>
 
-          {/* Emergency Fund */}
-          <SummaryCard title="Emergency Fund">
-            <div className="flex items-end justify-between mb-3">
-              <div>
-                <p className="text-xl font-bold text-gray-900">{formatCurrency(emergencyCurrent)}</p>
-                <p className="text-xs text-gray-400">of {formatCurrency(emergencyTarget)} goal</p>
-              </div>
-              <p className="text-sm font-medium" style={{ color: '#27AE60' }}>{emergencyPct.toFixed(1)}%</p>
-            </div>
-            <ProgressBar value={emergencyPct} color="#27AE60" />
-          </SummaryCard>
         </div>
       )}
     </FinanceLayout>
