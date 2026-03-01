@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
       ON CONFLICT DO NOTHING
     `
 
-    // Seed debts
+    // Seed debts (no unique constraint yet at this point — dedup happens in migration 003 below)
     await sql`
       INSERT INTO finance_debts (name, current_balance, original_balance, apr, min_payment, promo_end_date, promo_apr, sort_order) VALUES
         ('Toyota Tacoma Loan', 25000.00, 25000.00, 0.0499, 756.24, NULL, NULL, 1),
@@ -231,6 +231,32 @@ export async function POST(req: NextRequest) {
 
     await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS frequency TEXT DEFAULT 'Monthly'`
 
+    // --- Dedup all seeded tables (keep oldest row per unique key) ---
+    await sql`
+      DELETE FROM finance_debts
+      WHERE id NOT IN (
+        SELECT DISTINCT ON (name) id FROM finance_debts ORDER BY name, created_at ASC
+      )
+    `
+    await sql`
+      DELETE FROM finance_bills
+      WHERE id NOT IN (
+        SELECT DISTINCT ON (name) id FROM finance_bills ORDER BY name, created_at ASC
+      )
+    `
+    await sql`
+      DELETE FROM finance_annual_items
+      WHERE id NOT IN (
+        SELECT DISTINCT ON (name, year) id FROM finance_annual_items ORDER BY name, year, created_at ASC
+      )
+    `
+
+    // Add unique indexes (idempotent via IF NOT EXISTS)
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS finance_debts_name_idx ON finance_debts (name)`
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS finance_bills_name_idx ON finance_bills (name)`
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS finance_annual_items_name_year_idx ON finance_annual_items (name, year)`
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS finance_accounts_name_idx ON finance_accounts (name)`
+
     await sql`
       INSERT INTO finance_accounts (name, type, paid_by, sort_order) VALUES
         ('Robinhood [GC]', 'bank', NULL, 1),
@@ -242,7 +268,7 @@ export async function POST(req: NextRequest) {
         ('Chase Sapphire', 'credit_card', 'Chase Manny', 11),
         ('Chase Marriott', 'credit_card', 'Chase Manny', 12),
         ('Amex Green', 'credit_card', 'Chase Manny', 13)
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (name) DO NOTHING
     `
 
     return Response.json({
