@@ -9,6 +9,19 @@ import AmountInput from '@/components/finances/AmountInput'
 import LoadingSkeleton from '@/components/finances/LoadingSkeleton'
 import { formatCurrency, formatDate, daysUntil } from '@/lib/finances/format'
 
+interface Payment {
+  id: string
+  debt_id: string
+  payment_date: string
+  amount: number
+  principal_amount: number | null
+  interest_amount: number | null
+  late_fees: number | null
+  misc_fees: number | null
+  notes: string | null
+  created_at: string
+}
+
 interface Debt {
   id: string
   name: string
@@ -51,6 +64,21 @@ export default function DebtsPage() {
   // Add sheet
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState(EMPTY_FORM)
+
+  // History sheet
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyDebt, setHistoryDebt] = useState<Debt | null>(null)
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [paymentsLoading, setPaymentsLoading] = useState(false)
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null)
+  const [editPayAmount, setEditPayAmount] = useState('')
+  const [editPayPrincipal, setEditPayPrincipal] = useState('')
+  const [editPayInterest, setEditPayInterest] = useState('')
+  const [editPayLateFees, setEditPayLateFees] = useState('')
+  const [editPayMiscFees, setEditPayMiscFees] = useState('')
+  const [editPayDate, setEditPayDate] = useState('')
+  const [confirmDeletePaymentId, setConfirmDeletePaymentId] = useState<string | null>(null)
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null)
 
   const fetchDebts = useCallback(async () => {
     setLoading(true)
@@ -193,6 +221,75 @@ export default function DebtsPage() {
     fetchDebts()
   }
 
+  async function openHistory(debt: Debt) {
+    setHistoryDebt(debt)
+    setEditingPayment(null)
+    setConfirmDeletePaymentId(null)
+    setHistoryOpen(true)
+    setPaymentsLoading(true)
+    const res = await fetch(`/api/finances/debts/${debt.id}/payment`)
+    const json = await res.json()
+    setPayments(json.data ?? [])
+    setPaymentsLoading(false)
+  }
+
+  function startEditPayment(payment: Payment) {
+    setEditingPayment(payment)
+    setConfirmDeletePaymentId(null)
+    setEditPayAmount(String(payment.amount))
+    setEditPayPrincipal(payment.principal_amount != null ? String(payment.principal_amount) : '')
+    setEditPayInterest(payment.interest_amount != null ? String(payment.interest_amount) : '')
+    setEditPayLateFees(payment.late_fees != null ? String(payment.late_fees) : '')
+    setEditPayMiscFees(payment.misc_fees != null ? String(payment.misc_fees) : '')
+    setEditPayDate(payment.payment_date.split('T')[0])
+  }
+
+  async function submitEditPayment() {
+    if (!editingPayment || !historyDebt) return
+    setSaving(true)
+    const isZero = parseFloat(String(historyDebt.apr)) === 0
+    let body: object
+    if (isZero) {
+      body = { amount: parseFloat(editPayAmount) || 0, payment_date: editPayDate }
+    } else {
+      const principal = parseFloat(editPayPrincipal) || 0
+      const interest = parseFloat(editPayInterest) || 0
+      const lateFees = parseFloat(editPayLateFees) || 0
+      const miscFees = parseFloat(editPayMiscFees) || 0
+      body = {
+        amount: principal + interest + lateFees + miscFees,
+        principal_amount: principal || null,
+        interest_amount: interest || null,
+        late_fees: lateFees || null,
+        misc_fees: miscFees || null,
+        payment_date: editPayDate,
+      }
+    }
+    await fetch(`/api/finances/debts/${historyDebt.id}/payment/${editingPayment.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    setSaving(false)
+    setEditingPayment(null)
+    const res = await fetch(`/api/finances/debts/${historyDebt.id}/payment`)
+    const json = await res.json()
+    setPayments(json.data ?? [])
+    fetchDebts()
+  }
+
+  async function deletePayment(paymentId: string) {
+    if (!historyDebt) return
+    setDeletingPaymentId(paymentId)
+    await fetch(`/api/finances/debts/${historyDebt.id}/payment/${paymentId}`, { method: 'DELETE' })
+    setDeletingPaymentId(null)
+    setConfirmDeletePaymentId(null)
+    const res = await fetch(`/api/finances/debts/${historyDebt.id}/payment`)
+    const json = await res.json()
+    setPayments(json.data ?? [])
+    fetchDebts()
+  }
+
   return (
     <FinanceLayout title="Debt Tracker">
       {loading ? <LoadingSkeleton rows={4} /> : (
@@ -280,6 +377,12 @@ export default function DebtsPage() {
                   style={{ backgroundColor: '#2DB5AD' }}
                 >
                   Log Payment
+                </button>
+                <button
+                  onClick={() => openHistory(debt)}
+                  className="w-full py-2 text-xs font-medium text-gray-400 mt-1 active:text-gray-600"
+                >
+                  View payment history
                 </button>
               </div>
             )
@@ -480,6 +583,164 @@ export default function DebtsPage() {
             </button>
           </div>
         </div>
+      </BottomSheet>
+
+      {/* Payment History Sheet */}
+      <BottomSheet open={historyOpen} onClose={() => { setHistoryOpen(false); setEditingPayment(null) }} title={editingPayment ? 'Edit Payment' : `History: ${historyDebt?.name}`}>
+        {editingPayment ? (
+          /* ── Edit a specific payment ── */
+          <div className="space-y-4">
+            {/* Back button */}
+            <button
+              onClick={() => setEditingPayment(null)}
+              className="flex items-center gap-1.5 text-sm text-gray-500 active:text-gray-700 -mt-1"
+            >
+              ← Back to history
+            </button>
+
+            {historyDebt && (() => {
+              const isZero = parseFloat(String(historyDebt.apr)) === 0
+              const editBreakdownTotal =
+                (parseFloat(editPayPrincipal) || 0) +
+                (parseFloat(editPayInterest) || 0) +
+                (parseFloat(editPayLateFees) || 0) +
+                (parseFloat(editPayMiscFees) || 0)
+              const canSave = isZero
+                ? !!(parseFloat(editPayAmount) > 0)
+                : editBreakdownTotal > 0
+
+              return (
+                <>
+                  {isZero ? (
+                    <AmountInput label="Payment Amount" value={editPayAmount} onChange={setEditPayAmount} required />
+                  ) : (
+                    <>
+                      <div className="rounded-xl border border-gray-200 overflow-hidden">
+                        <div className="bg-gray-50 px-4 py-2 border-b border-gray-100">
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Transaction Details</p>
+                        </div>
+                        <div className="divide-y divide-gray-100">
+                          <div className="flex items-center px-4 py-3 gap-3">
+                            <span className="text-sm text-gray-700 w-32 shrink-0">Principal</span>
+                            <AmountInput value={editPayPrincipal} onChange={setEditPayPrincipal} placeholder="0.00" compact />
+                          </div>
+                          <div className="flex items-center px-4 py-3 gap-3">
+                            <span className="text-sm text-gray-700 w-32 shrink-0">Interest</span>
+                            <AmountInput value={editPayInterest} onChange={setEditPayInterest} placeholder="0.00" compact />
+                          </div>
+                          <div className="flex items-center px-4 py-3 gap-3">
+                            <span className="text-sm text-gray-700 w-32 shrink-0">Late Fees</span>
+                            <AmountInput value={editPayLateFees} onChange={setEditPayLateFees} placeholder="0.00" compact />
+                          </div>
+                          <div className="flex items-center px-4 py-3 gap-3">
+                            <span className="text-sm text-gray-700 w-32 shrink-0">Misc. Fees</span>
+                            <AmountInput value={editPayMiscFees} onChange={setEditPayMiscFees} placeholder="0.00" compact />
+                          </div>
+                        </div>
+                        {editBreakdownTotal > 0 && (
+                          <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200">
+                            <span className="text-sm font-bold text-gray-800">Total Amount</span>
+                            <span className="text-base font-bold text-gray-900">{formatCurrency(editBreakdownTotal)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
+                    <input type="date" value={editPayDate} onChange={e => setEditPayDate(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900" />
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setEditingPayment(null)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold">Cancel</button>
+                    <button onClick={submitEditPayment} disabled={saving || !canSave}
+                      className="flex-1 py-3 rounded-xl text-white font-semibold disabled:opacity-60" style={{ backgroundColor: '#2DB5AD' }}>
+                      {saving ? 'Saving…' : 'Save Changes'}
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        ) : (
+          /* ── Payment list ── */
+          <div className="space-y-2">
+            {paymentsLoading ? (
+              <div className="py-8 text-center text-sm text-gray-400">Loading…</div>
+            ) : payments.length === 0 ? (
+              <div className="py-8 text-center text-sm text-gray-400">No payments recorded yet.</div>
+            ) : (
+              payments.map(p => {
+                const hasBreakdown = p.principal_amount != null || p.interest_amount != null || p.late_fees != null || p.misc_fees != null
+                const parts: string[] = []
+                if (p.principal_amount != null) parts.push(`Principal ${formatCurrency(p.principal_amount)}`)
+                if (p.interest_amount != null) parts.push(`Interest ${formatCurrency(p.interest_amount)}`)
+                if (p.late_fees != null) parts.push(`Fees ${formatCurrency(p.late_fees)}`)
+                if (p.misc_fees != null) parts.push(`Misc ${formatCurrency(p.misc_fees)}`)
+                const isConfirmingDelete = confirmDeletePaymentId === p.id
+                const isDeleting = deletingPaymentId === p.id
+
+                return (
+                  <div key={p.id} className="bg-gray-50 rounded-xl overflow-hidden">
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      {/* Date + breakdown */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{formatDate(p.payment_date.split('T')[0])}</p>
+                        {hasBreakdown && (
+                          <p className="text-xs text-gray-400 mt-0.5 truncate">{parts.join(' · ')}</p>
+                        )}
+                        {p.notes && (
+                          <p className="text-xs text-gray-400 mt-0.5 italic truncate">{p.notes}</p>
+                        )}
+                      </div>
+                      {/* Amount */}
+                      <p className="text-base font-bold text-gray-900 shrink-0">{formatCurrency(p.amount)}</p>
+                      {/* Edit / Delete buttons */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => startEditPayment(p)}
+                          className="p-1.5 rounded-lg text-gray-400 active:bg-gray-200 active:text-gray-700"
+                          title="Edit payment"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeletePaymentId(isConfirmingDelete ? null : p.id)}
+                          className="p-1.5 rounded-lg text-gray-400 active:bg-red-100 active:text-red-500"
+                          title="Delete payment"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Inline delete confirm */}
+                    {isConfirmingDelete && (
+                      <div className="px-4 pb-3 flex items-center gap-2 border-t border-gray-200 pt-2">
+                        <p className="text-xs text-red-600 font-medium flex-1">Delete this payment? Balance will be restored.</p>
+                        <button
+                          onClick={() => setConfirmDeletePaymentId(null)}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 font-semibold"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => deletePayment(p.id)}
+                          disabled={isDeleting}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white font-semibold disabled:opacity-60"
+                        >
+                          {isDeleting ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        )}
       </BottomSheet>
     </FinanceLayout>
   )
