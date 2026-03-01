@@ -8,12 +8,23 @@ import Link from 'next/link'
 
 interface Setting { key: string; value: string; label: string | null }
 
+interface Account {
+  id: string
+  name: string
+  type: 'bank' | 'credit_card'
+  last_four: string | null
+  paid_by: string | null
+  sort_order: number
+}
+
 const SETTING_FIELDS = [
   { key: 'biweekly_net_pay', label: 'Bi-weekly Net Pay', type: 'currency', hint: 'Your take-home pay per paycheck' },
   { key: 'pay_periods_per_year', label: 'Pay Periods / Year', type: 'number', hint: '26 = bi-weekly, 24 = semi-monthly' },
   { key: 'emergency_fund_target', label: 'Emergency Fund Goal', type: 'currency', hint: 'Target balance' },
   { key: 'emergency_fund_current', label: 'Emergency Fund Current', type: 'currency', hint: 'Current saved balance' },
 ]
+
+const EMPTY_ACCOUNT: Omit<Account, 'id' | 'sort_order'> = { name: '', type: 'bank', last_four: null, paid_by: null }
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({})
@@ -30,6 +41,15 @@ export default function SettingsPage() {
   const [pwSuccess, setPwSuccess] = useState(false)
   const [pwSaving, setPwSaving] = useState(false)
 
+  // Accounts
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [accountsLoading, setAccountsLoading] = useState(true)
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null)
+  const [addingAccount, setAddingAccount] = useState(false)
+  const [newAccount, setNewAccount] = useState<Omit<Account, 'id' | 'sort_order'>>(EMPTY_ACCOUNT)
+  const [accountSaving, setAccountSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
   const fetchSettings = useCallback(async () => {
     setLoading(true)
     const res = await fetch('/api/finances/settings')
@@ -41,7 +61,21 @@ export default function SettingsPage() {
     setLoading(false)
   }, [])
 
+  const fetchAccounts = useCallback(async () => {
+    setAccountsLoading(true)
+    try {
+      const res = await fetch('/api/finances/accounts')
+      if (!res.ok) { setAccountsLoading(false); return }
+      const json = await res.json()
+      setAccounts(json.data ?? [])
+    } catch {
+      // ignore — table may not exist yet
+    }
+    setAccountsLoading(false)
+  }, [])
+
   useEffect(() => { fetchSettings() }, [fetchSettings])
+  useEffect(() => { fetchAccounts() }, [fetchAccounts])
 
   function setField(key: string, value: string) {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -79,6 +113,55 @@ export default function SettingsPage() {
     setCurrentPw(''); setNewPw(''); setConfirmPw('')
     setTimeout(() => setPwSuccess(false), 3000)
   }
+
+  async function saveAccount() {
+    if (!editingAccount) return
+    setAccountSaving(true)
+    await fetch(`/api/finances/accounts/${editingAccount.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: editingAccount.name,
+        type: editingAccount.type,
+        last_four: editingAccount.last_four || null,
+        paid_by: editingAccount.type === 'credit_card' ? (editingAccount.paid_by || null) : null,
+      }),
+    })
+    setAccountSaving(false)
+    setEditingAccount(null)
+    fetchAccounts()
+  }
+
+  async function addAccount() {
+    if (!newAccount.name) return
+    setAccountSaving(true)
+    const nextOrder = Math.max(0, ...accounts.map(a => a.sort_order)) + 1
+    await fetch('/api/finances/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newAccount.name,
+        type: newAccount.type,
+        last_four: newAccount.last_four || null,
+        paid_by: newAccount.type === 'credit_card' ? (newAccount.paid_by || null) : null,
+        sort_order: nextOrder,
+      }),
+    })
+    setAccountSaving(false)
+    setAddingAccount(false)
+    setNewAccount(EMPTY_ACCOUNT)
+    fetchAccounts()
+  }
+
+  async function deleteAccount(id: string) {
+    setDeletingId(id)
+    await fetch(`/api/finances/accounts/${id}`, { method: 'DELETE' })
+    setDeletingId(null)
+    fetchAccounts()
+  }
+
+  const bankAccounts = accounts.filter(a => a.type === 'bank')
+  const creditCards = accounts.filter(a => a.type === 'credit_card')
 
   const monthlyIncome = (() => {
     const bw = parseFloat(form.biweekly_net_pay ?? '0')
@@ -165,6 +248,161 @@ export default function SettingsPage() {
           {saved ? '✓ Saved!' : saving ? 'Saving…' : 'Save Settings'}
         </button>
 
+        {/* Accounts */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Accounts</h2>
+            <button
+              onClick={() => { setAddingAccount(true); setEditingAccount(null) }}
+              className="text-xs font-semibold text-teal-600 bg-teal-50 px-3 py-1.5 rounded-lg active:bg-teal-100"
+            >
+              + Add
+            </button>
+          </div>
+
+          {accountsLoading ? (
+            <div className="animate-pulse space-y-2">
+              {[1, 2, 3].map(i => <div key={i} className="h-12 bg-gray-100 rounded-xl" />)}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Bank Accounts */}
+              {bankAccounts.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Bank Accounts</p>
+                  <div className="space-y-2">
+                    {bankAccounts.map(acct => (
+                      <div key={acct.id}>
+                        {editingAccount?.id === acct.id ? (
+                          <AccountEditRow
+                            account={editingAccount}
+                            bankAccounts={bankAccounts}
+                            onChange={setEditingAccount}
+                            onSave={saveAccount}
+                            onCancel={() => setEditingAccount(null)}
+                            saving={accountSaving}
+                          />
+                        ) : (
+                          <AccountRow
+                            account={acct}
+                            onEdit={() => { setEditingAccount(acct); setAddingAccount(false) }}
+                            onDelete={() => deleteAccount(acct.id)}
+                            deleting={deletingId === acct.id}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Credit Cards */}
+              {creditCards.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Credit Cards</p>
+                  <div className="space-y-2">
+                    {creditCards.map(acct => (
+                      <div key={acct.id}>
+                        {editingAccount?.id === acct.id ? (
+                          <AccountEditRow
+                            account={editingAccount}
+                            bankAccounts={bankAccounts}
+                            onChange={setEditingAccount}
+                            onSave={saveAccount}
+                            onCancel={() => setEditingAccount(null)}
+                            saving={accountSaving}
+                          />
+                        ) : (
+                          <AccountRow
+                            account={acct}
+                            onEdit={() => { setEditingAccount(acct); setAddingAccount(false) }}
+                            onDelete={() => deleteAccount(acct.id)}
+                            deleting={deletingId === acct.id}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {accounts.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">No accounts yet. Add one to get started.</p>
+              )}
+
+              {/* Add new account form */}
+              {addingAccount && (
+                <div className="border border-teal-200 bg-teal-50/50 rounded-xl p-3 space-y-3">
+                  <p className="text-xs font-semibold text-teal-700 uppercase tracking-wide">New Account</p>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Chase Checking"
+                      value={newAccount.name}
+                      onChange={e => setNewAccount(p => ({ ...p, name: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                    <select
+                      value={newAccount.type}
+                      onChange={e => setNewAccount(p => ({ ...p, type: e.target.value as 'bank' | 'credit_card', paid_by: null }))}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white"
+                    >
+                      <option value="bank">Bank Account</option>
+                      <option value="credit_card">Credit Card</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Last 4 digits (optional)</label>
+                    <input
+                      type="text"
+                      maxLength={4}
+                      placeholder="1234"
+                      value={newAccount.last_four ?? ''}
+                      onChange={e => setNewAccount(p => ({ ...p, last_four: e.target.value || null }))}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    />
+                  </div>
+                  {newAccount.type === 'credit_card' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Paid by (bank account)</label>
+                      <select
+                        value={newAccount.paid_by ?? ''}
+                        onChange={e => setNewAccount(p => ({ ...p, paid_by: e.target.value || null }))}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white"
+                      >
+                        <option value="">— None —</option>
+                        {bankAccounts.map(b => (
+                          <option key={b.id} value={b.name}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={addAccount}
+                      disabled={accountSaving || !newAccount.name}
+                      className="flex-1 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-60"
+                      style={{ backgroundColor: '#2DB5AD' }}
+                    >
+                      {accountSaving ? 'Adding…' : 'Add Account'}
+                    </button>
+                    <button
+                      onClick={() => { setAddingAccount(false); setNewAccount(EMPTY_ACCOUNT) }}
+                      className="flex-1 py-2 rounded-lg text-gray-600 text-sm font-semibold bg-gray-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Change password */}
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Change Password</h2>
@@ -232,5 +470,113 @@ export default function SettingsPage() {
         <p className="text-center text-xs text-gray-300 pb-2">Finance Tracker · Flores Household</p>
       </div>
     </FinanceLayout>
+  )
+}
+
+// ── Sub-components ──────────────────────────────────────────────────────────
+
+function AccountRow({ account, onEdit, onDelete, deleting }: {
+  account: Account
+  onEdit: () => void
+  onDelete: () => void
+  deleting: boolean
+}) {
+  const icon = account.type === 'credit_card' ? '💳' : '🏦'
+  const sub = account.type === 'credit_card' && account.paid_by
+    ? `Paid by ${account.paid_by}`
+    : account.last_four
+    ? `••••${account.last_four}`
+    : account.type === 'bank' ? 'Bank account' : 'Credit card'
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl">
+      <span className="text-xl">{icon}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{account.name}</p>
+        <p className="text-xs text-gray-400 truncate">{sub}</p>
+      </div>
+      <div className="flex gap-1.5">
+        <button
+          onClick={onEdit}
+          className="text-xs text-teal-600 bg-teal-50 px-2.5 py-1 rounded-lg font-medium active:bg-teal-100"
+        >
+          Edit
+        </button>
+        <button
+          onClick={onDelete}
+          disabled={deleting}
+          className="text-xs text-red-500 bg-red-50 px-2.5 py-1 rounded-lg font-medium active:bg-red-100 disabled:opacity-40"
+        >
+          {deleting ? '…' : 'Del'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AccountEditRow({ account, bankAccounts, onChange, onSave, onCancel, saving }: {
+  account: Account
+  bankAccounts: Account[]
+  onChange: (a: Account) => void
+  onSave: () => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  return (
+    <div className="border border-teal-200 bg-teal-50/50 rounded-xl p-3 space-y-2">
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={account.name}
+          onChange={e => onChange({ ...account, name: e.target.value })}
+          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+          placeholder="Account name"
+        />
+        <select
+          value={account.type}
+          onChange={e => onChange({ ...account, type: e.target.value as 'bank' | 'credit_card', paid_by: null })}
+          className="px-2 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white"
+        >
+          <option value="bank">Bank</option>
+          <option value="credit_card">Card</option>
+        </select>
+      </div>
+      <input
+        type="text"
+        maxLength={4}
+        placeholder="Last 4 digits (optional)"
+        value={account.last_four ?? ''}
+        onChange={e => onChange({ ...account, last_four: e.target.value || null })}
+        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+      />
+      {account.type === 'credit_card' && (
+        <select
+          value={account.paid_by ?? ''}
+          onChange={e => onChange({ ...account, paid_by: e.target.value || null })}
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white"
+        >
+          <option value="">Paid by: — None —</option>
+          {bankAccounts.filter(b => b.id !== account.id).map(b => (
+            <option key={b.id} value={b.name}>Paid by: {b.name}</option>
+          ))}
+        </select>
+      )}
+      <div className="flex gap-2">
+        <button
+          onClick={onSave}
+          disabled={saving || !account.name}
+          className="flex-1 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-60"
+          style={{ backgroundColor: '#2DB5AD' }}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          onClick={onCancel}
+          className="flex-1 py-2 rounded-lg text-gray-600 text-sm font-semibold bg-gray-100"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   )
 }

@@ -216,6 +216,35 @@ export async function POST(req: NextRequest) {
       ON CONFLICT (username) DO NOTHING
     `
 
+    // --- Migration 003: accounts + frequency ---
+    await sql`
+      CREATE TABLE IF NOT EXISTS finance_accounts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'bank',
+        last_four TEXT,
+        paid_by TEXT,
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+
+    await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS frequency TEXT DEFAULT 'Monthly'`
+
+    await sql`
+      INSERT INTO finance_accounts (name, type, paid_by, sort_order) VALUES
+        ('Robinhood [GC]', 'bank', NULL, 1),
+        ('Ally FloHao', 'bank', NULL, 2),
+        ('Chase Manny', 'bank', NULL, 3),
+        ('SoFi Family', 'bank', NULL, 4),
+        ('SoFi Bro', 'bank', NULL, 5),
+        ('Apple Card', 'credit_card', 'Chase Manny', 10),
+        ('Chase Sapphire', 'credit_card', 'Chase Manny', 11),
+        ('Chase Marriott', 'credit_card', 'Chase Manny', 12),
+        ('Amex Green', 'credit_card', 'Chase Manny', 13)
+      ON CONFLICT DO NOTHING
+    `
+
     return Response.json({
       data: 'Migration complete. Users: manny/changeme123 (admin), celesti/changeme456 (viewer). CHANGE PASSWORDS!',
       error: null,
