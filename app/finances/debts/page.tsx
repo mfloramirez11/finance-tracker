@@ -139,12 +139,17 @@ export default function DebtsPage() {
   async function submitEdit() {
     if (!selected) return
     setSaving(true)
+    const newBalance = parseFloat(editForm.balance)
+    const storedOriginal = parseFloat(String(selected.original_balance))
+    // If the new balance exceeds the original (e.g. refinanced to a larger loan), update original too
+    const originalBalance = newBalance > storedOriginal ? newBalance : storedOriginal
     await fetch(`/api/finances/debts/${selected.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: editForm.name,
-        current_balance: parseFloat(editForm.balance),
+        current_balance: newBalance,
+        original_balance: originalBalance,
         apr: editForm.hasPromo ? 0 : parseFloat(editForm.apr) / 100,
         min_payment: parseFloat(editForm.minPayment),
         promo_end_date: editForm.hasPromo && editForm.promoEndDate ? editForm.promoEndDate : null,
@@ -210,7 +215,7 @@ export default function DebtsPage() {
           {debts.map(debt => {
             const original = parseFloat(String(debt.original_balance)) || parseFloat(String(debt.current_balance))
             const current = parseFloat(String(debt.current_balance))
-            const paidPct = original > 0 ? ((original - current) / original) * 100 : 0
+            const paidPct = original > 0 ? Math.max(0, ((original - current) / original) * 100) : 0
             const apr = parseFloat(String(debt.apr))
             const isPromo = apr === 0 && debt.promo_end_date
             const promoDays = debt.promo_end_date ? daysUntil(debt.promo_end_date.split('T')[0]) : null
