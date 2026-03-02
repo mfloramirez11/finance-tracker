@@ -13,6 +13,10 @@ export async function PATCH(
   const body = await req.json()
   const { amount, payment_date, principal_amount, interest_amount, late_fees, misc_fees, notes } = body
 
+  if (amount == null || isNaN(parseFloat(String(amount)))) {
+    return Response.json({ data: null, error: 'amount is required and must be a number' }, { status: 400 })
+  }
+
   // Get the existing payment to calculate balance delta
   const existing = await sql`
     SELECT * FROM finance_debt_payments WHERE id = ${paymentId} AND debt_id = ${id}

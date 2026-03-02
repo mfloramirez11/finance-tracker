@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     SELECT
       d.*,
       COALESCE(
-        (SELECT SUM(amount) FROM finance_debt_payments WHERE debt_id = d.id),
+        (SELECT SUM(COALESCE(principal_amount, amount)) FROM finance_debt_payments WHERE debt_id = d.id),
         0
       ) as total_paid
     FROM finance_debts d
