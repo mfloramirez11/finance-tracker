@@ -214,6 +214,22 @@ export default function DebtsPage() {
     fetchDebts()
   }
 
+  async function recalculateBalance() {
+    if (!selected) return
+    setSaving(true)
+    const res = await fetch(`/api/finances/debts/${selected.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recalculate_from_history: true }),
+    })
+    const json = await res.json()
+    if (json.data) {
+      setEditForm(f => ({ ...f, balance: String(parseFloat(String(json.data.current_balance))) }))
+    }
+    setSaving(false)
+    fetchDebts()
+  }
+
   async function deleteDebt() {
     if (!selected) return
     setDeleting(true)
@@ -521,6 +537,19 @@ export default function DebtsPage() {
             <AmountInput label="Current Balance" value={editForm.balance} onChange={v => setEditForm(f => ({ ...f, balance: v }))} />
             <AmountInput label="Original / Starting Balance" value={editForm.originalBalance} onChange={v => setEditForm(f => ({ ...f, originalBalance: v }))} />
             <AmountInput label="Min Payment" value={editForm.minPayment} onChange={v => setEditForm(f => ({ ...f, minPayment: v }))} />
+
+            {/* Recalculate balance */}
+            <button
+              onClick={recalculateBalance}
+              disabled={saving}
+              className="w-full py-2.5 rounded-xl text-sm font-medium border transition-colors disabled:opacity-50"
+              style={{ borderColor: 'var(--color-teal)', color: 'var(--color-teal)', backgroundColor: 'transparent' }}
+            >
+              ↻ Recalculate Balance from Payment History
+            </button>
+            <p className="text-xs -mt-2" style={{ color: 'var(--text-3)' }}>
+              For interest-bearing loans: sets balance to original balance minus all principal payments logged.
+            </p>
 
             {/* Promo toggle */}
             <div className="flex items-center justify-between px-1">

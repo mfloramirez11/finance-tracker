@@ -19,9 +19,15 @@ export async function PATCH(
   `
   if (!existing.length) return Response.json({ data: null, error: 'Not found' }, { status: 404 })
 
-  const oldAmount = parseFloat(String(existing[0].amount))
-  const newAmount = parseFloat(String(amount))
-  const balanceDelta = newAmount - oldAmount // positive = paid more = balance decreases more
+  // Use principal amounts for the delta when available (interest-bearing loans).
+  // Fall back to full amount for 0% / credit card payments with no breakdown.
+  const oldEffective = existing[0].principal_amount != null
+    ? parseFloat(String(existing[0].principal_amount))
+    : parseFloat(String(existing[0].amount))
+  const newEffective = (principal_amount != null)
+    ? parseFloat(String(principal_amount))
+    : parseFloat(String(amount))
+  const balanceDelta = newEffective - oldEffective // positive = more principal = balance decreases more
 
   // Update the payment record
   const payment = await sql`
@@ -63,14 +69,17 @@ export async function DELETE(
   `
   if (!existing.length) return Response.json({ data: null, error: 'Not found' }, { status: 404 })
 
-  const amount = parseFloat(String(existing[0].amount))
+  // Restore only what was originally deducted (principal, or full amount for 0% debts)
+  const restoreAmount = existing[0].principal_amount != null
+    ? parseFloat(String(existing[0].principal_amount))
+    : parseFloat(String(existing[0].amount))
 
   await sql`DELETE FROM finance_debt_payments WHERE id = ${paymentId}`
 
   // Restore the balance
   const debt = await sql`
     UPDATE finance_debts
-    SET current_balance = current_balance + ${amount}, updated_at = NOW()
+    SET current_balance = current_balance + ${restoreAmount}, updated_at = NOW()
     WHERE id = ${id}
     RETURNING *
   `

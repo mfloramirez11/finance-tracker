@@ -21,10 +21,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     RETURNING *
   `
 
-  // Always reduce balance by the total payment amount
+  // For interest-bearing loans, only the principal reduces the balance.
+  // For 0% / credit cards (no principal breakdown), use the full amount.
+  const balanceReduction = (principal_amount != null) ? principal_amount : amount
   const debt = await sql`
     UPDATE finance_debts
-    SET current_balance = GREATEST(0, current_balance - ${amount}), updated_at = NOW()
+    SET current_balance = GREATEST(0, current_balance - ${balanceReduction}), updated_at = NOW()
     WHERE id = ${id}
     RETURNING *
   `

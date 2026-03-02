@@ -9,6 +9,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params
   const body = await req.json()
 
+  // Special: recalculate current_balance from payment history
+  // Uses principal_amount where available (loans), full amount otherwise (0% cards)
+  if (body.recalculate_from_history) {
+    const payments = await sql`
+      SELECT COALESCE(principal_amount, amount) AS effective
+      FROM finance_debt_payments
+      WHERE debt_id = ${id}
+    `
+    const totalPrincipal = payments.reduce((s: number, p: any) => s + parseFloat(String(p.effective)), 0)
+    const [debtRow] = await sql`SELECT original_balance FROM finance_debts WHERE id = ${id}`
+    if (!debtRow) return Response.json({ data: null, error: 'Not found' }, { status: 404 })
+    const newBalance = Math.max(0, parseFloat(String(debtRow.original_balance)) - totalPrincipal)
+    const [updated] = await sql`
+      UPDATE finance_debts SET current_balance = ${newBalance}, updated_at = NOW() WHERE id = ${id} RETURNING *
+    `
+    return Response.json({ data: updated, error: null })
+  }
+
   const allowed = ['name', 'current_balance', 'original_balance', 'apr', 'min_payment',
     'promo_end_date', 'promo_apr', 'account', 'is_active', 'sort_order', 'notes']
   const updates: string[] = []
