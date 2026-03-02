@@ -43,7 +43,7 @@ interface Account {
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 const FILTER_CATS = ['All', 'Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
-const OWNER_LABELS = ['Manny', 'Manny & Celesti', 'Family Flores']
+const OWNER_LABELS = ['Manny', 'Celesti', 'Manny & Celesti', 'Family Flores']
 const BILL_CATS = ['Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
 const FREQUENCIES = ['Monthly', 'Bi-Monthly', 'Bi-Weekly', 'Quarterly', 'Semi-Annual', 'Annual', 'Varies']
 const DUE_DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1))

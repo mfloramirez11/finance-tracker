@@ -12,7 +12,7 @@ import { formatCurrency, formatDate, daysUntil } from '@/lib/finances/format'
 
 const CATEGORIES = ['Auto', 'Credit Card', 'Health', 'Housing', 'Insurance', 'Subscriptions', 'Tech', 'Other']
 const FILTER_CATS = ['All', ...CATEGORIES]
-const OWNER_LABELS = ['Manny', 'Manny & Celesti', 'Family Flores']
+const OWNER_LABELS = ['Manny', 'Celesti', 'Manny & Celesti', 'Family Flores']
 
 interface Account {
   id: string
