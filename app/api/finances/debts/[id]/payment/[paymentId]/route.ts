@@ -32,7 +32,7 @@ export async function PATCH(
   // Update the payment record
   const payment = await sql`
     UPDATE finance_debt_payments
-    SET amount = ${newAmount},
+    SET amount = ${amount},
         payment_date = ${payment_date},
         principal_amount = ${principal_amount ?? null},
         interest_amount = ${interest_amount ?? null},
