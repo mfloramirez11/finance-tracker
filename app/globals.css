@@ -1,50 +1,125 @@
 @import "tailwindcss";
 
+/* ── Light theme tokens ─────────────────────────────────────── */
 :root {
-  --color-navy: #1B2A4A;
-  --color-teal: #2DB5AD;
-  --color-gold: #F0A500;
-  --color-red: #D94F3D;
-  --color-green: #27AE60;
-  --color-bg: #F5F7FA;
+  --color-navy:     #1B2A4A;
+  --color-teal:     #2DB5AD;
+  --color-gold:     #F0A500;
+  --color-red:      #D94F3D;
+  --color-green:    #27AE60;
+
+  --bg:             #F0F2F5;
+  --card:           #FFFFFF;
+  --surface:        #F4F5F8;
+  --border:         #E4E7EC;
+  --border-soft:    #EEF0F4;
+  --text:           #0F1923;
+  --text-2:         #4B5563;
+  --text-3:         #9CA3AF;
+  --input-bg:       #FFFFFF;
+  --input-border:   #D1D5DB;
+  --skeleton:       #E5E7EB;
+  --tab-bg:         #FFFFFF;
+  --tab-border:     #E4E7EC;
+  --header-bg:      #FFFFFF;
+  --header-border:  #E4E7EC;
+  --sheet-bg:       #FFFFFF;
 }
 
-* {
+/* ── Dark theme tokens ─────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:             #0D1117;
+    --card:           #161B27;
+    --surface:        #1A2035;
+    --border:         #252D3F;
+    --border-soft:    #1E2636;
+    --text:           #E8EDF5;
+    --text-2:         #8B96A8;
+    --text-3:         #5A6478;
+    --input-bg:       #1A2035;
+    --input-border:   #2D3A50;
+    --skeleton:       #1E2636;
+    --tab-bg:         #0D1117;
+    --tab-border:     #1E2636;
+    --header-bg:      #0D1117;
+    --header-border:  #1E2636;
+    --sheet-bg:       #161B27;
+  }
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
+*, *::before, *::after {
   -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
 }
 
-html {
-  font-size: 16px;
-}
+html { font-size: 16px; }
 
 body {
-  background-color: var(--color-bg);
-  color: #111827;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
 
-/* Safe area padding for iOS */
-.safe-bottom {
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+/* ── Dark-mode: Tailwind utility overrides ─────────────────── */
+/* Covers the bg-white card pattern used across all page files   */
+@media (prefers-color-scheme: dark) {
+  .bg-white   { background-color: var(--card)    !important; }
+  .bg-gray-50 { background-color: var(--surface) !important; }
+  .bg-gray-100{ background-color: var(--surface) !important; }
+  .bg-gray-200{ background-color: var(--skeleton)!important; }
+
+  .text-gray-900 { color: var(--text)   !important; }
+  .text-gray-800 { color: var(--text)   !important; }
+  .text-gray-700 { color: var(--text-2) !important; }
+  .text-gray-600 { color: var(--text-2) !important; }
+  .text-gray-500 { color: var(--text-3) !important; }
+  .text-gray-400 { color: var(--text-3) !important; }
+
+  .border-gray-100 { border-color: var(--border-soft) !important; }
+  .border-gray-200 { border-color: var(--border)      !important; }
+  .border-gray-300 { border-color: var(--border)      !important; }
+
+  /* Native form elements */
+  input, select, textarea {
+    background-color: var(--input-bg) !important;
+    color: var(--text) !important;
+    border-color: var(--input-border) !important;
+    color-scheme: dark;
+  }
+
+  /* Autopay badge (#EFF6FF / #1D4ED8 blue) */
+  [style*="EFF6FF"] {
+    background-color: #1C2D4A !important;
+    color: #93C5FD !important;
+  }
+
+  /* Coming-up day badges */
+  [style*="FEE2E2"] { background-color: #2D0A0A !important; color: #FCA5A5 !important; }
+  [style*="FEF3C7"] { background-color: #2D1E04 !important; color: #FCD34D !important; }
+  [style*="F0FDF4"] { background-color: #052E16 !important; color: #86EFAC !important; }
+
+  /* Promo banner on debts (#FFFBEB yellow) */
+  [style*="FFFBEB"] { background-color: #1F1500 !important; color: #FCD34D !important; }
 }
 
-/* Hide scrollbar on mobile */
-::-webkit-scrollbar {
-  display: none;
-}
-* {
-  scrollbar-width: none;
-}
-
-/* Input reset */
+/* ── Input reset ─────────────────────────────────────────── */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+input[type="number"] { -moz-appearance: textfield; }
 
-input[type="number"] {
-  -moz-appearance: textfield;
+/* ── Scrollbar hide ──────────────────────────────────────── */
+::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; }
+
+/* ── Safe area ───────────────────────────────────────────── */
+.safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }

@@ -12,7 +12,10 @@ export default function ProgressBar({ value, color, height = 'h-2', className = 
   const bgColor = color ?? (clampedValue >= 90 ? '#D94F3D' : clampedValue >= 70 ? '#F39C12' : '#2DB5AD')
 
   return (
-    <div className={`w-full bg-gray-200 rounded-full overflow-hidden ${height} ${className}`}>
+    <div
+      className={`w-full rounded-full overflow-hidden ${height} ${className}`}
+      style={{ backgroundColor: 'var(--skeleton)' }}
+    >
       <div
         className="h-full rounded-full transition-all duration-500"
         style={{ width: `${clampedValue}%`, backgroundColor: bgColor }}
