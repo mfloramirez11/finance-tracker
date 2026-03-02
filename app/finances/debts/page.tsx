@@ -36,7 +36,7 @@ interface Debt {
   total_paid: number
 }
 
-const EMPTY_FORM = { name: '', balance: '', apr: '', minPayment: '', promoEndDate: '', hasPromo: false }
+const EMPTY_FORM = { name: '', account: '', balance: '', apr: '', minPayment: '', promoEndDate: '', hasPromo: false }
 
 export default function DebtsPage() {
   const [debts, setDebts] = useState<Debt[]>([])
@@ -57,7 +57,8 @@ export default function DebtsPage() {
 
   // Edit sheet
   const [editOpen, setEditOpen] = useState(false)
-  const [editForm, setEditForm] = useState({ name: '', balance: '', originalBalance: '', apr: '', minPayment: '', promoEndDate: '', hasPromo: false })
+  const [editForm, setEditForm] = useState({ name: '', account: '', balance: '', originalBalance: '', apr: '', minPayment: '', promoEndDate: '', hasPromo: false })
+  const [sortBy, setSortBy] = useState<'name' | 'account' | 'payoff'>('name')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -116,9 +117,10 @@ export default function DebtsPage() {
     const hasPromo = apr === 0 && !!debt.promo_end_date
     setEditForm({
       name: debt.name,
+      account: debt.account ?? '',
       balance: String(debt.current_balance),
       originalBalance: String(debt.original_balance ?? debt.current_balance),
-      apr: hasPromo ? '' : String(apr * 100),
+      apr: hasPromo ? '' : String(parseFloat((apr * 100).toFixed(10))),
       minPayment: String(debt.min_payment ?? ''),
       promoEndDate: debt.promo_end_date ? debt.promo_end_date.split('T')[0] : '',
       hasPromo,
@@ -175,6 +177,7 @@ export default function DebtsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: editForm.name,
+        account: editForm.account || null,
         current_balance: newBalance,
         original_balance: originalBalance,
         apr: editForm.hasPromo ? 0 : parseFloat(editForm.apr) / 100,
@@ -196,6 +199,7 @@ export default function DebtsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: addForm.name,
+        account: addForm.account || null,
         current_balance: parseFloat(addForm.balance),
         original_balance: parseFloat(addForm.balance),
         apr: addForm.hasPromo ? 0 : (parseFloat(addForm.apr) || 0) / 100,
@@ -289,6 +293,19 @@ export default function DebtsPage() {
     fetchDebts()
   }
 
+  const sortedDebts = [...debts].sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name)
+    if (sortBy === 'account') return (a.account ?? '').localeCompare(b.account ?? '')
+    if (sortBy === 'payoff') {
+      const origA = parseFloat(String(a.original_balance)) || parseFloat(String(a.current_balance))
+      const origB = parseFloat(String(b.original_balance)) || parseFloat(String(b.current_balance))
+      const pctA = origA > 0 ? (origA - parseFloat(String(a.current_balance))) / origA : 0
+      const pctB = origB > 0 ? (origB - parseFloat(String(b.current_balance))) / origB : 0
+      return pctB - pctA
+    }
+    return 0
+  })
+
   return (
     <FinanceLayout title="Debt Tracker">
       {loading ? <LoadingSkeleton rows={4} /> : (
@@ -307,8 +324,22 @@ export default function DebtsPage() {
             </div>
           </div>
 
+          {/* Sort controls */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs shrink-0" style={{ color: 'var(--text-3)' }}>Sort by</span>
+            {(['name', 'account', 'payoff'] as const).map(s => (
+              <button key={s} onClick={() => setSortBy(s)}
+                className="px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+                style={sortBy === s
+                  ? { backgroundColor: 'var(--color-navy)', color: '#fff', borderColor: 'var(--color-navy)' }
+                  : { backgroundColor: 'var(--card)', color: 'var(--text-2)', borderColor: 'var(--border)' }}>
+                {s === 'name' ? 'Name' : s === 'account' ? 'Company' : 'Payoff %'}
+              </button>
+            ))}
+          </div>
+
           {/* Debt cards */}
-          {debts.map(debt => {
+          {sortedDebts.map(debt => {
             const original = parseFloat(String(debt.original_balance)) || parseFloat(String(debt.current_balance))
             const current = parseFloat(String(debt.current_balance))
             const paidPct = original > 0 ? Math.max(0, ((original - current) / original) * 100) : 0
@@ -481,18 +512,28 @@ export default function DebtsPage() {
               <input type="text" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900" />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Company / Bank</label>
+              <input type="text" value={editForm.account} onChange={e => setEditForm(f => ({ ...f, account: e.target.value }))}
+                placeholder="e.g. Chase, Aidvantage, Bank of America"
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900" />
+            </div>
             <AmountInput label="Current Balance" value={editForm.balance} onChange={v => setEditForm(f => ({ ...f, balance: v }))} />
             <AmountInput label="Original / Starting Balance" value={editForm.originalBalance} onChange={v => setEditForm(f => ({ ...f, originalBalance: v }))} />
             <AmountInput label="Min Payment" value={editForm.minPayment} onChange={v => setEditForm(f => ({ ...f, minPayment: v }))} />
 
             {/* Promo toggle */}
             <div className="flex items-center justify-between px-1">
-              <label className="text-sm font-medium text-gray-700">0% Promotional Rate</label>
+              <label className="text-sm font-medium" style={{ color: 'var(--text-2)' }}>0% Promotional Rate</label>
               <button
                 onClick={() => setEditForm(f => ({ ...f, hasPromo: !f.hasPromo, apr: '' }))}
-                className={`relative w-11 h-6 rounded-full transition-colors ${editForm.hasPromo ? 'bg-teal-500' : 'bg-gray-200'}`}
+                className="relative w-11 h-6 rounded-full transition-colors"
+                style={{ backgroundColor: editForm.hasPromo ? 'var(--color-teal)' : 'var(--border)' }}
               >
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${editForm.hasPromo ? 'translate-x-6' : 'translate-x-1'}`} />
+                <span
+                  className="absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform"
+                  style={{ transform: editForm.hasPromo ? 'translateX(1.375rem)' : 'translateX(0.25rem)' }}
+                />
               </button>
             </div>
 
@@ -546,18 +587,28 @@ export default function DebtsPage() {
               placeholder="e.g. Chase Credit Card"
               className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900" />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Company / Bank</label>
+            <input type="text" value={addForm.account} onChange={e => setAddForm(f => ({ ...f, account: e.target.value }))}
+              placeholder="e.g. Chase, Aidvantage, Bank of America"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900" />
+          </div>
 
           <AmountInput label="Current Balance" value={addForm.balance} onChange={v => setAddForm(f => ({ ...f, balance: v }))} required />
           <AmountInput label="Min Payment" value={addForm.minPayment} onChange={v => setAddForm(f => ({ ...f, minPayment: v }))} />
 
           {/* Promo toggle */}
           <div className="flex items-center justify-between px-1">
-            <label className="text-sm font-medium text-gray-700">0% Promotional Rate</label>
+            <label className="text-sm font-medium" style={{ color: 'var(--text-2)' }}>0% Promotional Rate</label>
             <button
               onClick={() => setAddForm(f => ({ ...f, hasPromo: !f.hasPromo, apr: '' }))}
-              className={`relative w-11 h-6 rounded-full transition-colors ${addForm.hasPromo ? 'bg-teal-500' : 'bg-gray-200'}`}
+              className="relative w-11 h-6 rounded-full transition-colors"
+              style={{ backgroundColor: addForm.hasPromo ? 'var(--color-teal)' : 'var(--border)' }}
             >
-              <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${addForm.hasPromo ? 'translate-x-6' : 'translate-x-1'}`} />
+              <span
+                className="absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform"
+                style={{ transform: addForm.hasPromo ? 'translateX(1.375rem)' : 'translateX(0.25rem)' }}
+              />
             </button>
           </div>
 
