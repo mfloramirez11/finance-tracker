@@ -50,6 +50,7 @@ export default function AnnualPage() {
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all')
   const [filterCat, setFilterCat] = useState('All')
   const [filterOwner, setFilterOwner] = useState('All')
+  const [sortBy, setSortBy] = useState<'due_date' | 'name' | 'category'>('due_date')
   const [accounts, setAccounts] = useState<Account[]>([])
 
   // Edit sheet
@@ -153,13 +154,23 @@ export default function AnnualPage() {
     fetchData()
   }
 
-  const filtered = (data?.items ?? []).filter(item => {
-    if (filterOwner !== 'All' && item.owner !== filterOwner) return false
-    if (filterCat !== 'All' && item.category !== filterCat) return false
-    if (filterPaid === 'paid') return item.is_paid
-    if (filterPaid === 'unpaid') return !item.is_paid
-    return true
-  })
+  const filtered = (data?.items ?? [])
+    .filter(item => {
+      if (filterOwner !== 'All' && item.owner !== filterOwner) return false
+      if (filterCat !== 'All' && item.category !== filterCat) return false
+      if (filterPaid === 'paid') return item.is_paid
+      if (filterPaid === 'unpaid') return !item.is_paid
+      return true
+    })
+    .sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name)
+      if (sortBy === 'category') {
+        const catCmp = a.category.localeCompare(b.category)
+        return catCmp !== 0 ? catCmp : a.due_date.localeCompare(b.due_date)
+      }
+      // default: due_date
+      return a.due_date.localeCompare(b.due_date)
+    })
 
   const bankAccounts = accounts.filter(a => a.type === 'bank')
   const creditCards = accounts.filter(a => a.type === 'credit_card')
@@ -328,6 +339,23 @@ export default function AnnualPage() {
             </button>
           )
         })}
+      </div>
+
+      {/* Sort row */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs text-gray-400 font-medium shrink-0">Sort by</span>
+        {([['due_date', 'Due Date'], ['name', 'Name'], ['category', 'Label']] as const).map(([val, label]) => (
+          <button
+            key={val}
+            onClick={() => setSortBy(val)}
+            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+            style={sortBy === val
+              ? { backgroundColor: '#1B2A4A', color: '#fff', borderColor: '#1B2A4A' }
+              : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Paid/unpaid filter tabs */}

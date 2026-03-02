@@ -95,6 +95,7 @@ export default function MonthlyPage() {
   const [filter, setFilter] = useState('All')
   const [ownerFilter, setOwnerFilter] = useState('All')
   const [showUnpaid, setShowUnpaid] = useState(false)
+  const [sortBy, setSortBy] = useState<'due_date' | 'name' | 'category'>('due_date')
 
   // Sheet
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -283,8 +284,16 @@ export default function MonthlyPage() {
     fetchBills()
   }
 
-  // Sort all bills by due_day numerically
-  const sortedBills = [...bills].sort((a, b) => parseDueDay(a.due_day) - parseDueDay(b.due_day))
+  // Sort bills based on selected sort mode
+  const sortedBills = [...bills].sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name)
+    if (sortBy === 'category') {
+      const catCmp = a.category.localeCompare(b.category)
+      return catCmp !== 0 ? catCmp : parseDueDay(a.due_day) - parseDueDay(b.due_day)
+    }
+    // default: due_date
+    return parseDueDay(a.due_day) - parseDueDay(b.due_day)
+  })
 
   const filtered = sortedBills.filter(b => {
     if (ownerFilter !== 'All' && b.owner !== ownerFilter) return false
@@ -428,6 +437,23 @@ export default function MonthlyPage() {
               : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
           >
             {o === 'All' ? '👥 All' : o}
+          </button>
+        ))}
+      </div>
+
+      {/* Sort row */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-xs text-gray-400 font-medium shrink-0">Sort by</span>
+        {([['due_date', 'Due Date'], ['name', 'Name'], ['category', 'Label']] as const).map(([val, label]) => (
+          <button
+            key={val}
+            onClick={() => setSortBy(val)}
+            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+            style={sortBy === val
+              ? { backgroundColor: '#1B2A4A', color: '#fff', borderColor: '#1B2A4A' }
+              : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+          >
+            {label}
           </button>
         ))}
       </div>
