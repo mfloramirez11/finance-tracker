@@ -26,6 +26,12 @@ interface BillRow {
   paid_date: string | null
   actual_notes: string | null
   owner: string | null
+  debt_id: string | null
+}
+
+interface DebtOption {
+  id: string
+  name: string
 }
 
 interface Account {
@@ -84,6 +90,7 @@ export default function MonthlyPage() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [bills, setBills] = useState<BillRow[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [debts, setDebts] = useState<DebtOption[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('All')
   const [ownerFilter, setOwnerFilter] = useState('All')
@@ -111,6 +118,7 @@ export default function MonthlyPage() {
   const [editDefaultAmount, setEditDefaultAmount] = useState('')
   const [editAutopay, setEditAutopay] = useState(false)
   const [editOwner, setEditOwner] = useState('')
+  const [editDebtId, setEditDebtId] = useState<string>('')
 
   const fetchBills = useCallback(async () => {
     setLoading(true)
@@ -127,8 +135,16 @@ export default function MonthlyPage() {
     setAccounts(json.data ?? [])
   }, [])
 
+  const fetchDebts = useCallback(async () => {
+    const res = await fetch('/api/finances/debts')
+    if (!res.ok) return
+    const json = await res.json()
+    setDebts((json.data?.debts ?? []).map((d: { id: string; name: string }) => ({ id: d.id, name: d.name })))
+  }, [])
+
   useEffect(() => { fetchBills() }, [fetchBills])
   useEffect(() => { fetchAccounts() }, [fetchAccounts])
+  useEffect(() => { fetchDebts() }, [fetchDebts])
 
   function openPaymentSheet(bill: BillRow) {
     setSelectedBill(bill)
@@ -151,6 +167,7 @@ export default function MonthlyPage() {
     setEditDefaultAmount(String(bill.default_amount ?? ''))
     setEditAutopay(bill.is_autopay ?? false)
     setEditOwner(bill.owner ?? '')
+    setEditDebtId(bill.debt_id ?? '')
     setConfirmDelete(false)
     setSheetView('editBill')
     if (!sheetOpen) setSheetOpen(true)
@@ -167,6 +184,7 @@ export default function MonthlyPage() {
     setEditDefaultAmount('')
     setEditAutopay(false)
     setEditOwner('')
+    setEditDebtId('')
     setSheetView('addBill')
     setSheetOpen(true)
   }
@@ -208,6 +226,7 @@ export default function MonthlyPage() {
         default_amount: editDefaultAmount ? parseFloat(editDefaultAmount) : null,
         is_autopay: editAutopay,
         owner: editOwner || null,
+        debt_id: editDebtId || null,
       }),
     })
     setSaving(false)
@@ -606,6 +625,23 @@ export default function MonthlyPage() {
                 {OWNER_LABELS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
+
+            {editCategory === 'Debt' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Linked Debt</label>
+                <select
+                  value={editDebtId}
+                  onChange={e => setEditDebtId(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                >
+                  <option value="">— None —</option>
+                  {debts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+                {editDebtId && (
+                  <p className="text-xs text-teal-600 mt-1">✓ Checking off this bill will log a payment in the debt tracker</p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>

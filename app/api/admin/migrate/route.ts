@@ -242,6 +242,10 @@ export async function POST(req: NextRequest) {
     await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS owner TEXT`
     await sql`ALTER TABLE finance_annual_items ADD COLUMN IF NOT EXISTS owner TEXT`
 
+    // --- Migration 006: link bills to debts, track auto-created payments ---
+    await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS debt_id UUID REFERENCES finance_debts(id) ON DELETE SET NULL`
+    await sql`ALTER TABLE finance_actuals ADD COLUMN IF NOT EXISTS linked_debt_payment_id UUID REFERENCES finance_debt_payments(id) ON DELETE SET NULL`
+
     // --- Dedup all seeded tables (keep oldest row per unique key) ---
     await sql`
       DELETE FROM finance_debts
