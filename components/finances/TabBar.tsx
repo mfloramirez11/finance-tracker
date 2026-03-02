@@ -8,7 +8,6 @@ const TABS = [
   { href: '/finances/monthly', label: 'Monthly', icon: '📋' },
   { href: '/finances/annual', label: 'Annual', icon: '📅' },
   { href: '/finances/debts', label: 'Debts', icon: '💳' },
-  { href: '/finances/trends', label: 'Trends', icon: '📈' },
 ]
 
 export default function TabBar() {
