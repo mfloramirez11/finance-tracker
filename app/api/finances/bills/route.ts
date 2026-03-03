@@ -1,6 +1,25 @@
 import { NextRequest } from 'next/server'
+import { z } from 'zod'
 import { sql } from '@/lib/db'
 import { requireFinanceAuth, unauthorizedResponse } from '@/lib/finances/auth'
+
+const BILL_CATEGORIES = ['Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family'] as const
+const BILL_FREQUENCIES = ['Monthly', 'Bi-Monthly', 'Bi-Weekly', 'Quarterly', 'Semi-Annual', 'Annual', 'Varies'] as const
+
+const CreateBillSchema = z.object({
+  name: z.string().min(1, 'name is required').max(100),
+  category: z.enum(BILL_CATEGORIES),
+  billing_type: z.enum(['Fixed', 'Variable']),
+  default_amount: z.number().nonnegative().nullable().optional(),
+  account: z.string().max(100).nullable().optional(),
+  due_day: z.union([z.string().max(20), z.null()]).optional(),
+  months_active: z.array(z.number().int().min(1).max(12)).nullable().optional(),
+  notes: z.string().max(500).nullable().optional(),
+  sort_order: z.number().int().optional(),
+  frequency: z.enum(BILL_FREQUENCIES).optional(),
+  is_autopay: z.boolean().optional(),
+  owner: z.string().max(50).nullable().optional(),
+})
 
 export async function GET(req: NextRequest) {
   const authResult = await requireFinanceAuth()
@@ -24,11 +43,12 @@ export async function POST(req: NextRequest) {
   if (!authResult.authorized) return unauthorizedResponse(authResult.reason!)
 
   const body = await req.json()
-  const { name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order, frequency, is_autopay, owner } = body
-
-  if (!name || !category || !billing_type) {
-    return Response.json({ data: null, error: 'name, category, billing_type are required' }, { status: 400 })
+  const parse = CreateBillSchema.safeParse(body)
+  if (!parse.success) {
+    const msg = parse.error.issues[0]?.message ?? 'Invalid request body'
+    return Response.json({ data: null, error: msg }, { status: 400 })
   }
+  const { name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order, frequency, is_autopay, owner } = parse.data
 
   const result = await sql`
     INSERT INTO finance_bills (name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order, frequency, is_autopay, owner)

@@ -1,6 +1,21 @@
 import { NextRequest } from 'next/server'
+import { z } from 'zod'
 import { sql } from '@/lib/db'
 import { requireFinanceAuth, unauthorizedResponse } from '@/lib/finances/auth'
+
+const ANNUAL_CATEGORIES = ['Auto', 'Credit Card', 'Health', 'Housing', 'Insurance', 'Subscriptions', 'Tech', 'Other'] as const
+
+const CreateAnnualSchema = z.object({
+  name: z.string().min(1, 'name is required').max(100),
+  category: z.enum(ANNUAL_CATEGORIES),
+  amount: z.number().positive('amount must be positive'),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'due_date must be YYYY-MM-DD'),
+  year: z.number().int().min(2020).max(2100),
+  account: z.string().max(100).nullable().optional(),
+  notes: z.string().max(500).nullable().optional(),
+  is_critical: z.boolean().optional(),
+  owner: z.string().max(50).nullable().optional(),
+})
 
 export async function GET(req: NextRequest) {
   const authResult = await requireFinanceAuth()
@@ -26,11 +41,12 @@ export async function POST(req: NextRequest) {
   if (!authResult.authorized) return unauthorizedResponse(authResult.reason!)
 
   const body = await req.json()
-  const { name, category, amount, due_date, account, year, notes, is_critical, owner } = body
-
-  if (!name || !category || !amount || !due_date || !year) {
-    return Response.json({ data: null, error: 'name, category, amount, due_date, year are required' }, { status: 400 })
+  const parse = CreateAnnualSchema.safeParse(body)
+  if (!parse.success) {
+    const msg = parse.error.issues[0]?.message ?? 'Invalid request body'
+    return Response.json({ data: null, error: msg }, { status: 400 })
   }
+  const { name, category, amount, due_date, account, year, notes, is_critical, owner } = parse.data
 
   const result = await sql`
     INSERT INTO finance_annual_items (name, category, amount, due_date, account, year, notes, is_critical, owner)

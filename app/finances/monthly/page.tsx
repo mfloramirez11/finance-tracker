@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState, useCallback } from 'react'
+import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import FinanceLayout from '@/components/finances/FinanceLayout'
 import BottomSheet from '@/components/finances/BottomSheet'
@@ -29,10 +30,7 @@ interface BillRow {
   debt_id: string | null
 }
 
-interface DebtOption {
-  id: string
-  name: string
-}
+interface DebtOption { id: string; name: string }
 
 interface Account {
   id: string
@@ -42,7 +40,7 @@ interface Account {
 }
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
-const FILTER_CATS = ['All', 'Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
+const CAT_OPTIONS = ['Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
 const OWNER_LABELS = ['Manny', 'Celesti', 'Manny & Celesti', 'Family Flores']
 const OWNER_COLORS: Record<string, { bg: string; color: string }> = {
   'Manny':           { bg: '#DBEAFE', color: '#1D4ED8' },
@@ -56,7 +54,6 @@ const DUE_DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1))
 
 type SheetView = 'payment' | 'editBill' | 'addBill'
 
-// Parse due_day (may be "1st", "~15th", "15", etc.) → number for sorting (99 = unknown)
 function parseDueDay(d: string | null): number {
   if (!d) return 99
   const match = d.match(/\d+/)
@@ -65,10 +62,9 @@ function parseDueDay(d: string | null): number {
   return n >= 1 && n <= 31 ? n : 99
 }
 
-// Convert due_day string → display string ("15" or "15th" → "15th")
 function dueDayOrdinal(d: string | null): string | null {
   const n = parseDueDay(d)
-  if (n === 99) return d  // pass through "Varies", "Monthly", etc.
+  if (n === 99) return d
   if (n === 11 || n === 12 || n === 13) return `${n}th`
   switch (n % 10) {
     case 1: return `${n}st`
@@ -78,7 +74,6 @@ function dueDayOrdinal(d: string | null): string | null {
   }
 }
 
-// Parse existing text due_day (e.g. "1st", "~18th") into a select value
 function parseDueDayToSelectValue(d: string | null): string {
   if (!d) return ''
   const match = d.match(/\d+/)
@@ -87,9 +82,22 @@ function parseDueDayToSelectValue(d: string | null): string {
   return n >= 1 && n <= 31 ? String(n) : 'Varies'
 }
 
+// Suspense wrapper required for useSearchParams in Next.js
 export default function MonthlyPage() {
+  return (
+    <Suspense fallback={<LoadingSkeleton rows={5} />}>
+      <MonthlyPageInner />
+    </Suspense>
+  )
+}
+
+function MonthlyPageInner() {
   const { data: session } = useSession()
   const isAdmin = (session?.user as { role?: string })?.role === 'admin'
+
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
 
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
@@ -98,12 +106,16 @@ export default function MonthlyPage() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [debts, setDebts] = useState<DebtOption[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState('All')
-  const [ownerFilters, setOwnerFilters] = useState<string[]>([])
-  const [showUnpaid, setShowUnpaid] = useState(false)
-  const [sortBy, setSortBy] = useState<'due_date' | 'name' | 'category'>('due_date')
 
-  // Sheet
+  // Filters — initialized from URL params
+  const [search, setSearch] = useState(() => searchParams.get('q') ?? '')
+  const [filterCats, setFilterCats] = useState<string[]>(() => searchParams.get('cats')?.split(',').filter(Boolean) ?? [])
+  const [ownerFilters, setOwnerFilters] = useState<string[]>(() => searchParams.get('owners')?.split(',').filter(Boolean) ?? [])
+  const [showUnpaid, setShowUnpaid] = useState(() => searchParams.get('unpaid') === '1')
+  const [sortBy, setSortBy] = useState<'due_date' | 'name' | 'category'>(() => (searchParams.get('sort') as 'due_date' | 'name' | 'category') ?? 'due_date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => (searchParams.get('dir') as 'asc' | 'desc') ?? 'asc')
+
+  // Sheet state
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetView, setSheetView] = useState<SheetView>('payment')
   const [selectedBill, setSelectedBill] = useState<BillRow | null>(null)
@@ -120,12 +132,25 @@ export default function MonthlyPage() {
   const [editCategory, setEditCategory] = useState('Housing')
   const [editBillingType, setEditBillingType] = useState('Fixed')
   const [editAccount, setEditAccount] = useState('')
-  const [editDueDay, setEditDueDay] = useState('')       // "1"–"31" or "Varies" or ""
+  const [editDueDay, setEditDueDay] = useState('')
   const [editFrequency, setEditFrequency] = useState('Monthly')
   const [editDefaultAmount, setEditDefaultAmount] = useState('')
   const [editAutopay, setEditAutopay] = useState(false)
   const [editOwner, setEditOwner] = useState('')
   const [editDebtId, setEditDebtId] = useState<string>('')
+
+  // Sync filters to URL (debounced by useEffect)
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (search) params.set('q', search)
+    if (filterCats.length) params.set('cats', filterCats.join(','))
+    if (ownerFilters.length) params.set('owners', ownerFilters.join(','))
+    if (showUnpaid) params.set('unpaid', '1')
+    if (sortBy !== 'due_date') params.set('sort', sortBy)
+    if (sortDir !== 'asc') params.set('dir', sortDir)
+    const qs = params.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }, [search, filterCats, ownerFilters, showUnpaid, sortBy, sortDir, pathname, router])
 
   const fetchBills = useCallback(async () => {
     setLoading(true)
@@ -218,7 +243,6 @@ export default function MonthlyPage() {
   async function saveBillEdit() {
     if (!selectedBill) return
     setSaving(true)
-    // Store due_day as plain number or "Varies"
     const dueDayToSave = editDueDay === 'Varies' ? 'Varies' : editDueDay || null
     await fetch(`/api/finances/bills/${selectedBill.bill_id}`, {
       method: 'PATCH',
@@ -274,71 +298,109 @@ export default function MonthlyPage() {
     fetchBills()
   }
 
+  // Optimistic togglePaid — instant UI update, rolls back on error
   async function togglePaid(bill: BillRow) {
     const newPaid = !bill.is_paid
-    await fetch('/api/finances/actuals', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bill_id: bill.bill_id,
-        year, month,
-        amount: bill.actual_amount ?? bill.default_amount,
-        is_paid: newPaid,
-        paid_date: newPaid ? now.toISOString().split('T')[0] : null,
-      }),
-    })
-    fetchBills()
+    setBills(prev => prev.map(b =>
+      b.bill_id === bill.bill_id
+        ? { ...b, is_paid: newPaid, paid_date: newPaid ? now.toISOString().split('T')[0] : null }
+        : b
+    ))
+    try {
+      const res = await fetch('/api/finances/actuals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bill_id: bill.bill_id,
+          year, month,
+          amount: bill.actual_amount ?? bill.default_amount,
+          is_paid: newPaid,
+          paid_date: newPaid ? now.toISOString().split('T')[0] : null,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      fetchBills()
+    } catch {
+      // Roll back optimistic update
+      setBills(prev => prev.map(b =>
+        b.bill_id === bill.bill_id
+          ? { ...b, is_paid: bill.is_paid, paid_date: bill.paid_date }
+          : b
+      ))
+    }
   }
 
-  // Sort bills based on selected sort mode
-  const sortedBills = [...bills].sort((a, b) => {
-    if (sortBy === 'name') return a.name.localeCompare(b.name)
-    if (sortBy === 'category') {
-      const catCmp = a.category.localeCompare(b.category)
-      return catCmp !== 0 ? catCmp : parseDueDay(a.due_day) - parseDueDay(b.due_day)
+  // Toggle sort: clicking active button reverses direction; clicking new button resets to asc
+  function toggleSort(val: 'due_date' | 'name' | 'category') {
+    if (sortBy === val) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(val)
+      setSortDir('asc')
     }
-    // default: due_date
-    return parseDueDay(a.due_day) - parseDueDay(b.due_day)
+  }
+
+  // Sort with direction
+  const sortedBills = [...bills].sort((a, b) => {
+    let cmp = 0
+    if (sortBy === 'name') cmp = a.name.localeCompare(b.name)
+    else if (sortBy === 'category') {
+      const catCmp = a.category.localeCompare(b.category)
+      cmp = catCmp !== 0 ? catCmp : parseDueDay(a.due_day) - parseDueDay(b.due_day)
+    } else {
+      cmp = parseDueDay(a.due_day) - parseDueDay(b.due_day)
+    }
+    return sortDir === 'desc' ? -cmp : cmp
   })
 
   const filtered = sortedBills.filter(b => {
+    const q = search.toLowerCase()
+    if (q && !b.name.toLowerCase().includes(q) && !(b.account ?? '').toLowerCase().includes(q)) return false
     if (ownerFilters.length > 0 && !ownerFilters.includes(b.owner ?? '')) return false
-    if (filter !== 'All' && b.category !== filter) return false
+    if (filterCats.length > 0 && !filterCats.includes(b.category)) return false
     if (showUnpaid && b.is_paid) return false
     return true
   })
 
   const statBills = bills.filter(b => {
     if (ownerFilters.length > 0 && !ownerFilters.includes(b.owner ?? '')) return false
-    if (filter !== 'All' && b.category !== filter) return false
+    if (filterCats.length > 0 && !filterCats.includes(b.category)) return false
     return true
   })
   const total = statBills.reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
   const paid = statBills.filter(b => b.is_paid).reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
   const paidPct = total > 0 ? (paid / total) * 100 : 0
   const unpaidCount = statBills.filter(b => !b.is_paid).length
-  const activeCatColor = filter !== 'All' ? (CATEGORY_COLORS[filter]?.bg ?? '#2DB5AD') : undefined
+  const activeCatColor = filterCats.length === 1 ? (CATEGORY_COLORS[filterCats[0]]?.bg ?? '#2DB5AD') : undefined
+  const hasActiveFilters = search !== '' || filterCats.length > 0 || ownerFilters.length > 0 || showUnpaid
 
   const bankAccounts = accounts.filter(a => a.type === 'bank')
   const creditCards = accounts.filter(a => a.type === 'credit_card')
-
   const sheetTitle = sheetView === 'addBill' ? 'Add Bill' : sheetView === 'editBill' ? 'Edit Bill' : (selectedBill?.name ?? '')
 
-  // "Coming Up" — unpaid bills due from today onwards (only relevant for current month)
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1
   const todayDay = now.getDate()
   const comingUp = isCurrentMonth
-    ? sortedBills
-        .filter(b => !b.is_paid && parseDueDay(b.due_day) >= todayDay && parseDueDay(b.due_day) <= 31)
-        .slice(0, 4)
+    ? sortedBills.filter(b => !b.is_paid && parseDueDay(b.due_day) >= todayDay && parseDueDay(b.due_day) <= 31).slice(0, 4)
     : []
 
-  // Due-day select options
   const DUE_DAY_OPTIONS = [
     { value: '', label: '— None —' },
     ...DUE_DAYS.map(d => ({ value: d, label: dueDayOrdinal(d) ?? d })),
     { value: 'Varies', label: 'Varies' },
   ]
+
+  // Group filtered bills by category when sortBy === 'category'
+  const groupedFiltered: Array<{ header: string | null; bills: BillRow[] }> = sortBy === 'category'
+    ? (() => {
+        const groups: Record<string, BillRow[]> = {}
+        for (const b of filtered) {
+          if (!groups[b.category]) groups[b.category] = []
+          groups[b.category].push(b)
+        }
+        return Object.entries(groups).map(([cat, catBills]) => ({ header: cat, bills: catBills }))
+      })()
+    : [{ header: null, bills: filtered }]
 
   return (
     <FinanceLayout
@@ -348,9 +410,7 @@ export default function MonthlyPage() {
           onClick={openAddBillSheet}
           className="w-8 h-8 flex items-center justify-center rounded-full text-white text-xl font-bold"
           style={{ backgroundColor: '#2DB5AD' }}
-        >
-          +
-        </button>
+        >+</button>
       ) : undefined}
     >
       {/* Month selector */}
@@ -368,9 +428,7 @@ export default function MonthlyPage() {
               key={m}
               onClick={() => setMonth(m)}
               className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors"
-              style={month === m
-                ? { backgroundColor: '#1B2A4A', color: '#fff' }
-                : { backgroundColor: '#E5E7EB', color: '#374151' }}
+              style={month === m ? { backgroundColor: '#1B2A4A', color: '#fff' } : { backgroundColor: '#E5E7EB', color: '#374151' }}
             >
               {shortMonthName(m)}
             </button>
@@ -394,8 +452,8 @@ export default function MonthlyPage() {
         </div>
       </div>
 
-      {/* Coming Up — current month only */}
-      {!loading && comingUp.length > 0 && filter === 'All' && !showUnpaid && (
+      {/* Coming Up — current month only, hide when category filter active */}
+      {!loading && comingUp.length > 0 && filterCats.length === 0 && !showUnpaid && (
         <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Coming Up</p>
           <div className="space-y-2">
@@ -410,9 +468,7 @@ export default function MonthlyPage() {
                     <p className="text-xs text-gray-400">Due {dueDayOrdinal(bill.due_day)}</p>
                   </div>
                   <div className="flex items-center gap-2 ml-2 shrink-0">
-                    {amount !== null && (
-                      <span className="text-sm font-semibold text-gray-900">{formatCurrency(amount)}</span>
-                    )}
+                    {amount !== null && <span className="text-sm font-semibold text-gray-900">{formatCurrency(amount)}</span>}
                     <span
                       className="text-xs font-semibold px-2 py-0.5 rounded-full"
                       style={daysLeft === 0
@@ -430,6 +486,21 @@ export default function MonthlyPage() {
           </div>
         </div>
       )}
+
+      {/* Search */}
+      <div className="relative mb-3">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search bills…"
+          className="w-full pl-8 pr-8 py-2 rounded-xl border border-gray-200 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-teal-400"
+        />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold">✕</button>
+        )}
+      </div>
 
       {/* Owner filters */}
       <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
@@ -460,33 +531,43 @@ export default function MonthlyPage() {
         })}
       </div>
 
-      {/* Sort row */}
+      {/* Sort row — clicking active button toggles direction */}
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs text-gray-400 font-medium shrink-0">Sort by</span>
+        <span className="text-xs text-gray-400 font-medium shrink-0">Sort</span>
         {([['due_date', 'Due Date'], ['name', 'Name'], ['category', 'Label']] as const).map(([val, label]) => (
           <button
             key={val}
-            onClick={() => setSortBy(val)}
+            onClick={() => toggleSort(val)}
             className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
             style={sortBy === val
               ? { backgroundColor: '#1B2A4A', color: '#fff', borderColor: '#1B2A4A' }
               : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
           >
-            {label}
+            {label}{sortBy === val ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
           </button>
         ))}
       </div>
 
-      {/* Category filters */}
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-        {FILTER_CATS.map(cat => {
-          const catColor = cat === 'All' ? '#2DB5AD' : (CATEGORY_COLORS[cat]?.bg ?? '#2DB5AD')
+      {/* Category filters — multi-select */}
+      <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
+        <button
+          onClick={() => setFilterCats([])}
+          className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+          style={filterCats.length === 0
+            ? { backgroundColor: '#2DB5AD', color: '#fff', borderColor: '#2DB5AD' }
+            : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+        >
+          All
+        </button>
+        {CAT_OPTIONS.map(cat => {
+          const active = filterCats.includes(cat)
+          const catColor = CATEGORY_COLORS[cat]?.bg ?? '#2DB5AD'
           return (
             <button
               key={cat}
-              onClick={() => setFilter(cat)}
+              onClick={() => setFilterCats(prev => active ? prev.filter(x => x !== cat) : [...prev, cat])}
               className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-              style={filter === cat
+              style={active
                 ? { backgroundColor: catColor, color: '#fff', borderColor: catColor }
                 : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
             >
@@ -505,74 +586,106 @@ export default function MonthlyPage() {
         </button>
       </div>
 
-      {/* Bill list */}
+      {/* Clear All Filters — only visible when any filter is active */}
+      {hasActiveFilters && (
+        <div className="flex justify-end mb-3">
+          <button
+            onClick={() => { setSearch(''); setFilterCats([]); setOwnerFilters([]); setShowUnpaid(false) }}
+            className="text-xs font-semibold px-3 py-1 rounded-full border"
+            style={{ color: '#D94F3D', borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' }}
+          >
+            ✕ Clear all filters
+          </button>
+        </div>
+      )}
+
+      {/* Bill list — grouped by category when sort=category, flat otherwise */}
       {loading ? <LoadingSkeleton rows={5} /> : (
         <div className="space-y-2">
           {filtered.length === 0 && (
             <div className="text-center py-10 text-gray-400 text-sm">No bills found</div>
           )}
-          {filtered.map(bill => {
-            const amount = bill.actual_amount ?? bill.default_amount
-            const dueLabel = dueDayOrdinal(bill.due_day)
-            return (
-              <div key={bill.bill_id} className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
-                <button
-                  onClick={() => togglePaid(bill)}
-                  className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors"
-                  style={bill.is_paid
-                    ? { backgroundColor: '#27AE60', borderColor: '#27AE60' }
-                    : { backgroundColor: 'transparent', borderColor: '#D1D5DB' }}
-                >
-                  {bill.is_paid && <span className="text-white text-xs">✓</span>}
-                </button>
-
-                <div className="flex-1 min-w-0" onClick={() => openPaymentSheet(bill)}>
-                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                    <span className={`text-sm font-semibold ${bill.is_paid ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
-                      {bill.name}
-                    </span>
-                    <CategoryChip category={bill.category} />
-                    {bill.owner && (
-                      <span
-                        className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
-                        style={OWNER_COLORS[bill.owner]
-                          ? { backgroundColor: OWNER_COLORS[bill.owner].bg, color: OWNER_COLORS[bill.owner].color }
-                          : { backgroundColor: '#E5E7EB', color: '#374151' }}
+          {groupedFiltered.map(({ header, bills: groupBills }) => (
+            <div key={header ?? 'all'}>
+              {header && (
+                <div className="flex items-center gap-2 px-1 pt-3 pb-1">
+                  <CategoryChip category={header} />
+                  <span className="text-xs text-gray-400 font-medium">{groupBills.length} bill{groupBills.length !== 1 ? 's' : ''}</span>
+                </div>
+              )}
+              <div className="space-y-2">
+                {groupBills.map(bill => {
+                  const amount = bill.actual_amount ?? bill.default_amount
+                  const dueLabel = dueDayOrdinal(bill.due_day)
+                  return (
+                    <div key={bill.bill_id} className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
+                      <button
+                        onClick={() => togglePaid(bill)}
+                        className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors"
+                        style={bill.is_paid
+                          ? { backgroundColor: '#27AE60', borderColor: '#27AE60' }
+                          : { backgroundColor: 'transparent', borderColor: '#D1D5DB' }}
                       >
-                        {bill.owner}
-                      </span>
-                    )}
-                    {bill.is_autopay && (
-                      <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8' }}>
-                        ⚡ Auto
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-gray-400">
-                    {dueLabel && <span>Due {dueLabel}</span>}
-                    {bill.account && <span className="truncate max-w-[130px]">{bill.account}</span>}
-                    {bill.billing_type !== 'Fixed' && <span className="italic">{bill.billing_type}</span>}
-                  </div>
-                </div>
+                        {bill.is_paid && <span className="text-white text-xs">✓</span>}
+                      </button>
 
-                <div className="flex items-center gap-1 shrink-0">
-                  <div className="text-right" onClick={() => openPaymentSheet(bill)}>
-                    <p className={`text-base font-bold ${bill.is_paid ? 'text-gray-400' : 'text-gray-900'}`}>
-                      {amount !== null ? formatCurrency(amount) : <span className="text-gray-300">—</span>}
-                    </p>
-                  </div>
-                  {isAdmin && (
-                    <button
-                      onClick={() => switchToEditBill(bill)}
-                      className="w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:bg-gray-100 text-sm ml-1"
-                    >
-                      ✏️
-                    </button>
-                  )}
-                </div>
+                      <div className="flex-1 min-w-0" onClick={() => openPaymentSheet(bill)}>
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className={`text-sm font-semibold ${bill.is_paid ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                            {bill.name}
+                          </span>
+                          {/* Tappable category chip — sets category filter */}
+                          <button
+                            onClick={e => { e.stopPropagation(); setFilterCats(prev => prev.includes(bill.category) ? prev : [...prev, bill.category]) }}
+                          >
+                            <CategoryChip category={bill.category} />
+                          </button>
+                          {/* Tappable owner chip — adds to owner filter */}
+                          {bill.owner && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setOwnerFilters(prev => prev.includes(bill.owner!) ? prev : [...prev, bill.owner!]) }}
+                              className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
+                              style={OWNER_COLORS[bill.owner]
+                                ? { backgroundColor: OWNER_COLORS[bill.owner].bg, color: OWNER_COLORS[bill.owner].color }
+                                : { backgroundColor: '#E5E7EB', color: '#374151' }}
+                            >
+                              {bill.owner}
+                            </button>
+                          )}
+                          {bill.is_autopay && (
+                            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8' }}>
+                              ⚡ Auto
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-gray-400">
+                          {dueLabel && <span>Due {dueLabel}</span>}
+                          {bill.account && <span className="truncate max-w-[130px]">{bill.account}</span>}
+                          {bill.billing_type !== 'Fixed' && <span className="italic">{bill.billing_type}</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <div className="text-right" onClick={() => openPaymentSheet(bill)}>
+                          <p className={`text-base font-bold ${bill.is_paid ? 'text-gray-400' : 'text-gray-900'}`}>
+                            {amount !== null ? formatCurrency(amount) : <span className="text-gray-300">—</span>}
+                          </p>
+                        </div>
+                        {isAdmin && (
+                          <button
+                            onClick={() => switchToEditBill(bill)}
+                            className="w-7 h-7 flex items-center justify-center rounded-full text-gray-300 hover:bg-gray-100 text-sm ml-1"
+                          >
+                            ✏️
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
+            </div>
+          ))}
         </div>
       )}
 
@@ -585,55 +698,36 @@ export default function MonthlyPage() {
             <div className="flex items-center gap-2 flex-wrap">
               <CategoryChip category={selectedBill.category} />
               <span className="text-xs text-gray-400">{selectedBill.billing_type}</span>
-              {selectedBill.account && (
-                <span className="text-xs text-gray-400">{selectedBill.account}</span>
-              )}
+              {selectedBill.account && <span className="text-xs text-gray-400">{selectedBill.account}</span>}
               {selectedBill.is_autopay && (
                 <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8' }}>
                   ⚡ Autopay
                 </span>
               )}
             </div>
-
-            <AmountInput
-              label="Amount"
-              value={editAmount}
-              onChange={setEditAmount}
-              placeholder={String(selectedBill.default_amount ?? '0.00')}
-            />
-
+            <AmountInput label="Amount" value={editAmount} onChange={setEditAmount} placeholder={String(selectedBill.default_amount ?? '0.00')} />
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setEditPaid(!editPaid)}
                 className="w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors shrink-0"
-                style={editPaid
-                  ? { backgroundColor: '#27AE60', borderColor: '#27AE60' }
-                  : { backgroundColor: 'transparent', borderColor: '#D1D5DB' }}
+                style={editPaid ? { backgroundColor: '#27AE60', borderColor: '#27AE60' } : { backgroundColor: 'transparent', borderColor: '#D1D5DB' }}
               >
                 {editPaid && <span className="text-white text-xs">✓</span>}
               </button>
               <span className="text-sm text-gray-700">Mark as paid</span>
             </div>
-
             {editPaid && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date paid</label>
-                <input
-                  type="date"
-                  value={editDate}
-                  onChange={e => setEditDate(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 focus:outline-none"
-                />
+                <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 focus:outline-none" />
               </div>
             )}
-
             <div className="flex gap-3 pt-2">
               <button onClick={() => setSheetOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm">Cancel</button>
               <button onClick={saveActual} disabled={saving} className="flex-1 py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-60" style={{ backgroundColor: '#1B2A4A' }}>
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
-
             {isAdmin && (
               <div className="border-t border-gray-100 pt-3">
                 <button onClick={() => switchToEditBill(selectedBill)} className="w-full py-2.5 rounded-xl border border-gray-200 text-gray-700 font-medium text-sm">
@@ -644,140 +738,75 @@ export default function MonthlyPage() {
           </div>
         )}
 
-        {/* EDIT / ADD BILL FORM (shared layout) */}
+        {/* EDIT / ADD BILL FORM */}
         {(sheetView === 'editBill' || sheetView === 'addBill') && (
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Bill Name</label>
-              <input
-                type="text"
-                value={editName}
-                onChange={e => setEditName(e.target.value)}
-                placeholder="e.g. Netflix"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              />
+              <input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder="e.g. Netflix" className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <select
-                value={editCategory}
-                onChange={e => setEditCategory(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              >
+              <select value={editCategory} onChange={e => setEditCategory(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
                 {BILL_CATS.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Owner</label>
-              <select
-                value={editOwner}
-                onChange={e => setEditOwner(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              >
+              <select value={editOwner} onChange={e => setEditOwner(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
                 <option value="">— None —</option>
                 {OWNER_LABELS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
-
             {editCategory === 'Debt' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Linked Debt</label>
-                <select
-                  value={editDebtId}
-                  onChange={e => setEditDebtId(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-                >
+                <select value={editDebtId} onChange={e => setEditDebtId(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
                   <option value="">— None —</option>
                   {debts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
-                {editDebtId && (
-                  <p className="text-xs text-teal-600 mt-1">✓ Checking off this bill will log a payment in the debt tracker</p>
-                )}
+                {editDebtId && <p className="text-xs text-teal-600 mt-1">✓ Checking off this bill will log a payment in the debt tracker</p>}
               </div>
             )}
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
               <div className="flex rounded-xl border border-gray-200 overflow-hidden">
                 {['Fixed', 'Variable'].map(t => (
-                  <button
-                    key={t}
-                    onClick={() => setEditBillingType(t)}
-                    className="flex-1 py-2.5 text-sm font-semibold transition-colors"
-                    style={editBillingType === t
-                      ? { backgroundColor: '#1B2A4A', color: '#fff' }
-                      : { backgroundColor: '#fff', color: '#6B7280' }}
-                  >
+                  <button key={t} onClick={() => setEditBillingType(t)} className="flex-1 py-2.5 text-sm font-semibold transition-colors"
+                    style={editBillingType === t ? { backgroundColor: '#1B2A4A', color: '#fff' } : { backgroundColor: '#fff', color: '#6B7280' }}>
                     {t}
                   </button>
                 ))}
               </div>
             </div>
-
             <AmountInput label="Default Amount" value={editDefaultAmount} onChange={setEditDefaultAmount} placeholder="0.00" />
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Account / Card</label>
-              <select
-                value={editAccount}
-                onChange={e => setEditAccount(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              >
+              <select value={editAccount} onChange={e => setEditAccount(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
                 <option value="">— None —</option>
-                {bankAccounts.length > 0 && (
-                  <optgroup label="Bank Accounts">
-                    {bankAccounts.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-                  </optgroup>
-                )}
-                {creditCards.length > 0 && (
-                  <optgroup label="Credit Cards">
-                    {creditCards.map(a => (
-                      <option key={a.id} value={a.name}>{a.name}</option>
-                    ))}
-                  </optgroup>
-                )}
+                {bankAccounts.length > 0 && <optgroup label="Bank Accounts">{bankAccounts.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}</optgroup>}
+                {creditCards.length > 0 && <optgroup label="Credit Cards">{creditCards.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}</optgroup>}
               </select>
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Due Day of Month</label>
-              <select
-                value={editDueDay}
-                onChange={e => setEditDueDay(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              >
-                {DUE_DAY_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+              <select value={editDueDay} onChange={e => setEditDueDay(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
+                {DUE_DAY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Frequency</label>
-              <select
-                value={editFrequency}
-                onChange={e => setEditFrequency(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
-              >
+              <select value={editFrequency} onChange={e => setEditFrequency(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
                 {FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}
               </select>
             </div>
-
             <button
               onClick={() => setEditAutopay(v => !v)}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border transition-colors text-left"
-              style={editAutopay
-                ? { borderColor: '#1D4ED8', backgroundColor: '#EFF6FF' }
-                : { borderColor: '#E5E7EB', backgroundColor: '#fff' }}
+              style={editAutopay ? { borderColor: '#1D4ED8', backgroundColor: '#EFF6FF' } : { borderColor: '#E5E7EB', backgroundColor: '#fff' }}
             >
-              <div
-                className="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors"
-                style={editAutopay
-                  ? { backgroundColor: '#1D4ED8', borderColor: '#1D4ED8' }
-                  : { backgroundColor: 'transparent', borderColor: '#D1D5DB' }}
-              >
+              <div className="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors"
+                style={editAutopay ? { backgroundColor: '#1D4ED8', borderColor: '#1D4ED8' } : { backgroundColor: 'transparent', borderColor: '#D1D5DB' }}>
                 {editAutopay && <span className="text-white text-xs font-bold">✓</span>}
               </div>
               <div>
@@ -785,35 +814,20 @@ export default function MonthlyPage() {
                 <p className="text-xs text-gray-400">This bill is paid automatically</p>
               </div>
             </button>
-
             <div className="flex gap-3 pt-2">
-              <button onClick={() => setSheetOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm">
-                Cancel
-              </button>
-              <button
-                onClick={sheetView === 'editBill' ? saveBillEdit : addBill}
-                disabled={saving || !editName}
-                className="flex-1 py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-60"
-                style={{ backgroundColor: '#1B2A4A' }}
-              >
+              <button onClick={() => setSheetOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm">Cancel</button>
+              <button onClick={sheetView === 'editBill' ? saveBillEdit : addBill} disabled={saving || !editName} className="flex-1 py-3 rounded-xl text-white font-semibold text-sm disabled:opacity-60" style={{ backgroundColor: '#1B2A4A' }}>
                 {saving ? 'Saving…' : sheetView === 'editBill' ? 'Save Changes' : 'Add Bill'}
               </button>
             </div>
-
             {sheetView === 'editBill' && (
               <div className="pt-1">
                 {!confirmDelete ? (
-                  <button onClick={() => setConfirmDelete(true)} className="w-full py-2.5 rounded-xl text-red-500 font-medium text-sm border border-red-100">
-                    Delete Bill
-                  </button>
+                  <button onClick={() => setConfirmDelete(true)} className="w-full py-2.5 rounded-xl text-red-500 font-medium text-sm border border-red-100">Delete Bill</button>
                 ) : (
                   <div className="flex gap-2">
-                    <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm">
-                      Cancel
-                    </button>
-                    <button onClick={deleteBill} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-semibold text-sm">
-                      {saving ? 'Deleting…' : 'Confirm Delete'}
-                    </button>
+                    <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm">Cancel</button>
+                    <button onClick={deleteBill} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-semibold text-sm">{saving ? 'Deleting…' : 'Confirm Delete'}</button>
                   </div>
                 )}
               </div>
