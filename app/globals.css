@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* ── Dark mode: wire Tailwind's dark: variant to prefers-color-scheme ── */
+/* Without this, dark: classes target the .dark CSS class (default),     */
+/* not the system media query that the rest of the app uses.              */
+@variant dark (@media (prefers-color-scheme: dark));
+
 /* ── Tailwind theme tokens ─────────────────────────────────── */
 /* Exposes bg-navy, text-navy, bg-teal, text-teal, etc. as     */
 /* Tailwind utility classes while keeping var() access intact   */

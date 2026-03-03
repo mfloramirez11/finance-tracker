@@ -6,17 +6,16 @@ interface AlertBadgeProps {
 }
 
 export default function AlertBadge({ days, className = '' }: AlertBadgeProps) {
-  let bg = '#27AE60'
-  let text = 'text-white'
+  let chipClass = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
 
   if (days < 0) {
-    bg = '#6B7280'
+    chipClass = 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
   } else if (days <= 14) {
-    bg = '#D94F3D'
+    chipClass = 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300'
   } else if (days <= 30) {
-    bg = '#F39C12'
+    chipClass = 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300'
   } else if (days <= 60) {
-    bg = '#F0A500'
+    chipClass = 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
   }
 
   const label = days < 0
@@ -26,10 +25,7 @@ export default function AlertBadge({ days, className = '' }: AlertBadgeProps) {
     : `${days}d`
 
   return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${text} ${className}`}
-      style={{ backgroundColor: bg }}
-    >
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${chipClass} ${className}`}>
       {label}
     </span>
   )

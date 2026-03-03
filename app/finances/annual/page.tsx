@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState, useCallback, useMemo, useDeferredValue } from 'react'
 import { useAutoAnimate } from '@formkit/auto-animate/react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import FinanceLayout from '@/components/finances/FinanceLayout'
@@ -81,6 +81,8 @@ function AnnualPageInner() {
 
   // List animation
   const [listRef] = useAutoAnimate()
+  // Deferred search — keeps the input snappy; filter re-runs on a lower priority
+  const deferredSearch = useDeferredValue(search)
 
   // Edit sheet
   const [editOpen, setEditOpen] = useState(false)
@@ -209,7 +211,8 @@ function AnnualPageInner() {
     }
   }
 
-  const sortedItems = [...(data?.items ?? [])].sort((a, b) => {
+  // Sort — memoized so unrelated state changes (saving, editOpen, etc.) don't re-sort
+  const sortedItems = useMemo(() => [...(data?.items ?? [])].sort((a, b) => {
     let cmp = 0
     if (sortBy === 'name') cmp = a.name.localeCompare(b.name)
     else if (sortBy === 'category') {
@@ -219,27 +222,29 @@ function AnnualPageInner() {
       cmp = a.due_date.localeCompare(b.due_date)
     }
     return sortDir === 'desc' ? -cmp : cmp
-  })
+  }), [data, sortBy, sortDir])
 
-  const filtered = sortedItems.filter(item => {
-    const q = search.toLowerCase()
+  // Filter — uses deferredSearch so typing stays instantaneous
+  const filtered = useMemo(() => sortedItems.filter(item => {
+    const q = deferredSearch.toLowerCase()
     if (q && !item.name.toLowerCase().includes(q) && !(item.account ?? '').toLowerCase().includes(q)) return false
     if (filterOwners.length > 0 && !filterOwners.includes(item.owner ?? '')) return false
     if (filterCats.length > 0 && !filterCats.includes(item.category)) return false
     if (filterPaid === 'paid') return item.is_paid
     if (filterPaid === 'unpaid') return !item.is_paid
     return true
-  })
+  }), [sortedItems, deferredSearch, filterOwners, filterCats, filterPaid])
 
   const bankAccounts = accounts.filter(a => a.type === 'bank')
   const creditCards = accounts.filter(a => a.type === 'credit_card')
 
   // Stats respect owner + category filters (but not paid filter, so bar always shows full scope)
-  const statItems = (data?.items ?? []).filter(i => {
+  const statItems = useMemo(() => (data?.items ?? []).filter(i => {
     if (filterOwners.length > 0 && !filterOwners.includes(i.owner ?? '')) return false
     if (filterCats.length > 0 && !filterCats.includes(i.category)) return false
     return true
-  })
+  }), [data, filterOwners, filterCats])
+
   const displayTotal = statItems.reduce((s, i) => s + parseFloat(String(i.amount)), 0)
   const displayPaid = statItems.filter(i => i.is_paid).reduce((s, i) => s + parseFloat(String(i.amount)), 0)
   const paidPct = displayTotal > 0 ? (displayPaid / displayTotal) * 100 : 0
@@ -247,16 +252,15 @@ function AnnualPageInner() {
   const hasActiveFilters = search !== '' || filterCats.length > 0 || filterOwners.length > 0 || filterPaid !== 'all'
 
   // Group filtered items by category when sortBy === 'category'
-  const groupedFiltered: Array<{ header: string | null; items: AnnualItem[] }> = sortBy === 'category'
-    ? (() => {
-        const groups: Record<string, AnnualItem[]> = {}
-        for (const item of filtered) {
-          if (!groups[item.category]) groups[item.category] = []
-          groups[item.category].push(item)
-        }
-        return Object.entries(groups).map(([cat, catItems]) => ({ header: cat, items: catItems }))
-      })()
-    : [{ header: null, items: filtered }]
+  const groupedFiltered = useMemo((): Array<{ header: string | null; items: AnnualItem[] }> => {
+    if (sortBy !== 'category') return [{ header: null, items: filtered }]
+    const groups: Record<string, AnnualItem[]> = {}
+    for (const item of filtered) {
+      if (!groups[item.category]) groups[item.category] = []
+      groups[item.category].push(item)
+    }
+    return Object.entries(groups).map(([cat, catItems]) => ({ header: cat, items: catItems }))
+  }, [filtered, sortBy])
 
   const formFields = (form: typeof EMPTY_EDIT, setForm: React.Dispatch<React.SetStateAction<typeof EMPTY_EDIT>>) => (
     <>

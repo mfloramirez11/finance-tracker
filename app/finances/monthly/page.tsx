@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState, useCallback } from 'react'
+import { Suspense, useEffect, useState, useCallback, useMemo, useDeferredValue } from 'react'
 import { useAutoAnimate } from '@formkit/auto-animate/react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
@@ -158,6 +158,8 @@ function MonthlyPageInner() {
 
   // List animation
   const [listRef] = useAutoAnimate()
+  // Deferred search — keeps the input snappy; filter re-runs on a lower priority
+  const deferredSearch = useDeferredValue(search)
 
   // Sync filters to URL — debounced 300 ms so rapid keystrokes don't spam history
   useEffect(() => {
@@ -371,8 +373,8 @@ function MonthlyPageInner() {
     }
   }
 
-  // Sort with direction
-  const sortedBills = [...bills].sort((a, b) => {
+  // Sort with direction — memoized so unrelated state changes (saving, sheetOpen, etc.) don't re-sort
+  const sortedBills = useMemo(() => [...bills].sort((a, b) => {
     let cmp = 0
     if (sortBy === 'name') cmp = a.name.localeCompare(b.name)
     else if (sortBy === 'category') {
@@ -382,22 +384,25 @@ function MonthlyPageInner() {
       cmp = parseDueDay(a.due_day) - parseDueDay(b.due_day)
     }
     return sortDir === 'desc' ? -cmp : cmp
-  })
+  }), [bills, sortBy, sortDir])
 
-  const filtered = sortedBills.filter(b => {
-    const q = search.toLowerCase()
+  // Filter — uses deferredSearch so typing stays instantaneous
+  const filtered = useMemo(() => sortedBills.filter(b => {
+    const q = deferredSearch.toLowerCase()
     if (q && !b.name.toLowerCase().includes(q) && !(b.account ?? '').toLowerCase().includes(q)) return false
     if (ownerFilters.length > 0 && !ownerFilters.includes(b.owner ?? '')) return false
     if (filterCats.length > 0 && !filterCats.includes(b.category)) return false
     if (showUnpaid && b.is_paid) return false
     return true
-  })
+  }), [sortedBills, deferredSearch, ownerFilters, filterCats, showUnpaid])
 
-  const statBills = bills.filter(b => {
+  // Stats exclude search + showUnpaid so progress bar reflects full owner/category scope
+  const statBills = useMemo(() => bills.filter(b => {
     if (ownerFilters.length > 0 && !ownerFilters.includes(b.owner ?? '')) return false
     if (filterCats.length > 0 && !filterCats.includes(b.category)) return false
     return true
-  })
+  }), [bills, ownerFilters, filterCats])
+
   const total = statBills.reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
   const paid = statBills.filter(b => b.is_paid).reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
   const paidPct = total > 0 ? (paid / total) * 100 : 0
@@ -422,16 +427,15 @@ function MonthlyPageInner() {
   ]
 
   // Group filtered bills by category when sortBy === 'category'
-  const groupedFiltered: Array<{ header: string | null; bills: BillRow[] }> = sortBy === 'category'
-    ? (() => {
-        const groups: Record<string, BillRow[]> = {}
-        for (const b of filtered) {
-          if (!groups[b.category]) groups[b.category] = []
-          groups[b.category].push(b)
-        }
-        return Object.entries(groups).map(([cat, catBills]) => ({ header: cat, bills: catBills }))
-      })()
-    : [{ header: null, bills: filtered }]
+  const groupedFiltered = useMemo((): Array<{ header: string | null; bills: BillRow[] }> => {
+    if (sortBy !== 'category') return [{ header: null, bills: filtered }]
+    const groups: Record<string, BillRow[]> = {}
+    for (const b of filtered) {
+      if (!groups[b.category]) groups[b.category] = []
+      groups[b.category].push(b)
+    }
+    return Object.entries(groups).map(([cat, catBills]) => ({ header: cat, bills: catBills }))
+  }, [filtered, sortBy])
 
   return (
     <FinanceLayout
