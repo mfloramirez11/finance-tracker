@@ -13,6 +13,12 @@ import { formatCurrency, formatDate, daysUntil } from '@/lib/finances/format'
 const CATEGORIES = ['Auto', 'Credit Card', 'Health', 'Housing', 'Insurance', 'Subscriptions', 'Tech', 'Other']
 const FILTER_CATS = ['All', ...CATEGORIES]
 const OWNER_LABELS = ['Manny', 'Celesti', 'Manny & Celesti', 'Family Flores']
+const OWNER_COLORS: Record<string, { bg: string; color: string }> = {
+  'Manny':           { bg: '#DBEAFE', color: '#1D4ED8' },
+  'Celesti':         { bg: '#FCE7F3', color: '#BE185D' },
+  'Manny & Celesti': { bg: '#EDE9FE', color: '#7C3AED' },
+  'Family Flores':   { bg: '#DCFCE7', color: '#166534' },
+}
 
 interface Account {
   id: string
@@ -49,7 +55,7 @@ export default function AnnualPage() {
   const [loading, setLoading] = useState(true)
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all')
   const [filterCat, setFilterCat] = useState('All')
-  const [filterOwner, setFilterOwner] = useState('All')
+  const [filterOwners, setFilterOwners] = useState<string[]>([])
   const [sortBy, setSortBy] = useState<'due_date' | 'name' | 'category'>('due_date')
   const [accounts, setAccounts] = useState<Account[]>([])
 
@@ -156,7 +162,7 @@ export default function AnnualPage() {
 
   const filtered = (data?.items ?? [])
     .filter(item => {
-      if (filterOwner !== 'All' && item.owner !== filterOwner) return false
+      if (filterOwners.length > 0 && !filterOwners.includes(item.owner ?? '')) return false
       if (filterCat !== 'All' && item.category !== filterCat) return false
       if (filterPaid === 'paid') return item.is_paid
       if (filterPaid === 'unpaid') return !item.is_paid
@@ -176,7 +182,7 @@ export default function AnnualPage() {
   const creditCards = accounts.filter(a => a.type === 'credit_card')
 
   const statItems = (data?.items ?? []).filter(i => {
-    if (filterOwner !== 'All' && i.owner !== filterOwner) return false
+    if (filterOwners.length > 0 && !filterOwners.includes(i.owner ?? '')) return false
     if (filterCat !== 'All' && i.category !== filterCat) return false
     return true
   })
@@ -308,18 +314,31 @@ export default function AnnualPage() {
 
       {/* Owner filters */}
       <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
-        {(['All', ...OWNER_LABELS] as string[]).map(o => (
-          <button
-            key={o}
-            onClick={() => setFilterOwner(o)}
-            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-            style={filterOwner === o
-              ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
-              : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-          >
-            {o === 'All' ? '👥 All' : o}
-          </button>
-        ))}
+        <button
+          onClick={() => setFilterOwners([])}
+          className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+          style={filterOwners.length === 0
+            ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
+            : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+        >
+          👥 All
+        </button>
+        {OWNER_LABELS.map(o => {
+          const active = filterOwners.includes(o)
+          const col = OWNER_COLORS[o] ?? { bg: '#7C3AED', color: '#fff' }
+          return (
+            <button
+              key={o}
+              onClick={() => setFilterOwners(prev => active ? prev.filter(x => x !== o) : [...prev, o])}
+              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+              style={active
+                ? { backgroundColor: col.color, color: '#fff', borderColor: col.color }
+                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+            >
+              {o}
+            </button>
+          )
+        })}
       </div>
 
       {/* Category filters */}
@@ -402,6 +421,16 @@ export default function AnnualPage() {
                       {item.name}
                     </span>
                     <CategoryChip category={item.category} />
+                    {item.owner && (
+                      <span
+                        className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
+                        style={OWNER_COLORS[item.owner]
+                          ? { backgroundColor: OWNER_COLORS[item.owner].bg, color: OWNER_COLORS[item.owner].color }
+                          : { backgroundColor: '#E5E7EB', color: '#374151' }}
+                      >
+                        {item.owner}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
                     <span>Due {formatDate(dueDateStr)}</span>

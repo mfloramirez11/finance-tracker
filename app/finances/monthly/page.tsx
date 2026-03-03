@@ -44,6 +44,12 @@ interface Account {
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 const FILTER_CATS = ['All', 'Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
 const OWNER_LABELS = ['Manny', 'Celesti', 'Manny & Celesti', 'Family Flores']
+const OWNER_COLORS: Record<string, { bg: string; color: string }> = {
+  'Manny':           { bg: '#DBEAFE', color: '#1D4ED8' },
+  'Celesti':         { bg: '#FCE7F3', color: '#BE185D' },
+  'Manny & Celesti': { bg: '#EDE9FE', color: '#7C3AED' },
+  'Family Flores':   { bg: '#DCFCE7', color: '#166534' },
+}
 const BILL_CATS = ['Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
 const FREQUENCIES = ['Monthly', 'Bi-Monthly', 'Bi-Weekly', 'Quarterly', 'Semi-Annual', 'Annual', 'Varies']
 const DUE_DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1))
@@ -93,7 +99,7 @@ export default function MonthlyPage() {
   const [debts, setDebts] = useState<DebtOption[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('All')
-  const [ownerFilter, setOwnerFilter] = useState('All')
+  const [ownerFilters, setOwnerFilters] = useState<string[]>([])
   const [showUnpaid, setShowUnpaid] = useState(false)
   const [sortBy, setSortBy] = useState<'due_date' | 'name' | 'category'>('due_date')
 
@@ -296,14 +302,14 @@ export default function MonthlyPage() {
   })
 
   const filtered = sortedBills.filter(b => {
-    if (ownerFilter !== 'All' && b.owner !== ownerFilter) return false
+    if (ownerFilters.length > 0 && !ownerFilters.includes(b.owner ?? '')) return false
     if (filter !== 'All' && b.category !== filter) return false
     if (showUnpaid && b.is_paid) return false
     return true
   })
 
   const statBills = bills.filter(b => {
-    if (ownerFilter !== 'All' && b.owner !== ownerFilter) return false
+    if (ownerFilters.length > 0 && !ownerFilters.includes(b.owner ?? '')) return false
     if (filter !== 'All' && b.category !== filter) return false
     return true
   })
@@ -427,18 +433,31 @@ export default function MonthlyPage() {
 
       {/* Owner filters */}
       <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
-        {(['All', ...OWNER_LABELS] as string[]).map(o => (
-          <button
-            key={o}
-            onClick={() => setOwnerFilter(o)}
-            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-            style={ownerFilter === o
-              ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
-              : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-          >
-            {o === 'All' ? '👥 All' : o}
-          </button>
-        ))}
+        <button
+          onClick={() => setOwnerFilters([])}
+          className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+          style={ownerFilters.length === 0
+            ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
+            : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+        >
+          👥 All
+        </button>
+        {OWNER_LABELS.map(o => {
+          const active = ownerFilters.includes(o)
+          const col = OWNER_COLORS[o] ?? { bg: '#7C3AED', color: '#fff' }
+          return (
+            <button
+              key={o}
+              onClick={() => setOwnerFilters(prev => active ? prev.filter(x => x !== o) : [...prev, o])}
+              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+              style={active
+                ? { backgroundColor: col.color, color: '#fff', borderColor: col.color }
+                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+            >
+              {o}
+            </button>
+          )
+        })}
       </div>
 
       {/* Sort row */}
@@ -513,6 +532,16 @@ export default function MonthlyPage() {
                       {bill.name}
                     </span>
                     <CategoryChip category={bill.category} />
+                    {bill.owner && (
+                      <span
+                        className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
+                        style={OWNER_COLORS[bill.owner]
+                          ? { backgroundColor: OWNER_COLORS[bill.owner].bg, color: OWNER_COLORS[bill.owner].color }
+                          : { backgroundColor: '#E5E7EB', color: '#374151' }}
+                      >
+                        {bill.owner}
+                      </span>
+                    )}
                     {bill.is_autopay && (
                       <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8' }}>
                         ⚡ Auto
