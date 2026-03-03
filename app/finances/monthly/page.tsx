@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useState, useCallback } from 'react'
+import { useAutoAnimate } from '@formkit/auto-animate/react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import FinanceLayout from '@/components/finances/FinanceLayout'
@@ -9,6 +10,7 @@ import ProgressBar from '@/components/finances/ProgressBar'
 import CategoryChip, { CATEGORY_COLORS } from '@/components/finances/CategoryChip'
 import AmountInput from '@/components/finances/AmountInput'
 import LoadingSkeleton from '@/components/finances/LoadingSkeleton'
+import EmptyState from '@/components/finances/EmptyState'
 import { formatCurrency, shortMonthName } from '@/lib/finances/format'
 
 interface BillRow {
@@ -20,6 +22,7 @@ interface BillRow {
   account: string | null
   due_day: string | null
   frequency: string | null
+  months_active: number[] | null
   is_autopay: boolean
   actual_id: string | null
   actual_amount: number | null
@@ -40,7 +43,20 @@ interface Account {
 }
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const CAT_OPTIONS = ['Housing', 'Auto', 'Utilities', 'Wireless', 'Insurance', 'Debt', 'Subscriptions', 'Family']
+
+// Frequencies that require an explicit months_active selection
+const CADENCE_FREQUENCIES = ['Bi-Monthly', 'Quarterly', 'Semi-Annual', 'Annual']
+
+/** Default months for a given cadence frequency */
+function defaultMonthsForFrequency(freq: string): number[] {
+  if (freq === 'Bi-Monthly')  return [1, 3, 5, 7, 9, 11]
+  if (freq === 'Quarterly')   return [1, 4, 7, 10]
+  if (freq === 'Semi-Annual') return [1, 7]
+  if (freq === 'Annual')      return []  // user picks the one month
+  return []
+}
 const OWNER_LABELS = ['Manny', 'Celesti', 'Manny & Celesti', 'Family Flores']
 const OWNER_COLORS: Record<string, { bg: string; color: string }> = {
   'Manny':           { bg: '#DBEAFE', color: '#1D4ED8' },
@@ -138,18 +154,25 @@ function MonthlyPageInner() {
   const [editAutopay, setEditAutopay] = useState(false)
   const [editOwner, setEditOwner] = useState('')
   const [editDebtId, setEditDebtId] = useState<string>('')
+  const [editMonthsActive, setEditMonthsActive] = useState<number[]>([])
 
-  // Sync filters to URL (debounced by useEffect)
+  // List animation
+  const [listRef] = useAutoAnimate()
+
+  // Sync filters to URL — debounced 300 ms so rapid keystrokes don't spam history
   useEffect(() => {
-    const params = new URLSearchParams()
-    if (search) params.set('q', search)
-    if (filterCats.length) params.set('cats', filterCats.join(','))
-    if (ownerFilters.length) params.set('owners', ownerFilters.join(','))
-    if (showUnpaid) params.set('unpaid', '1')
-    if (sortBy !== 'due_date') params.set('sort', sortBy)
-    if (sortDir !== 'asc') params.set('dir', sortDir)
-    const qs = params.toString()
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    const id = setTimeout(() => {
+      const params = new URLSearchParams()
+      if (search) params.set('q', search)
+      if (filterCats.length) params.set('cats', filterCats.join(','))
+      if (ownerFilters.length) params.set('owners', ownerFilters.join(','))
+      if (showUnpaid) params.set('unpaid', '1')
+      if (sortBy !== 'due_date') params.set('sort', sortBy)
+      if (sortDir !== 'asc') params.set('dir', sortDir)
+      const qs = params.toString()
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    }, 300)
+    return () => clearTimeout(id)
   }, [search, filterCats, ownerFilters, showUnpaid, sortBy, sortDir, pathname, router])
 
   const fetchBills = useCallback(async () => {
@@ -200,6 +223,7 @@ function MonthlyPageInner() {
     setEditAutopay(bill.is_autopay ?? false)
     setEditOwner(bill.owner ?? '')
     setEditDebtId(bill.debt_id ?? '')
+    setEditMonthsActive(bill.months_active ?? [])
     setConfirmDelete(false)
     setSheetView('editBill')
     if (!sheetOpen) setSheetOpen(true)
@@ -217,6 +241,7 @@ function MonthlyPageInner() {
     setEditAutopay(false)
     setEditOwner('')
     setEditDebtId('')
+    setEditMonthsActive([])
     setSheetView('addBill')
     setSheetOpen(true)
   }
@@ -258,6 +283,9 @@ function MonthlyPageInner() {
         is_autopay: editAutopay,
         owner: editOwner || null,
         debt_id: editDebtId || null,
+        months_active: CADENCE_FREQUENCIES.includes(editFrequency)
+          ? (editMonthsActive.length > 0 ? editMonthsActive : null)
+          : null,
       }),
     })
     setSaving(false)
@@ -282,6 +310,9 @@ function MonthlyPageInner() {
         default_amount: editDefaultAmount ? parseFloat(editDefaultAmount) : null,
         is_autopay: editAutopay,
         owner: editOwner || null,
+        months_active: CADENCE_FREQUENCIES.includes(editFrequency)
+          ? (editMonthsActive.length > 0 ? editMonthsActive : null)
+          : null,
       }),
     })
     setSaving(false)
@@ -601,9 +632,13 @@ function MonthlyPageInner() {
 
       {/* Bill list — grouped by category when sort=category, flat otherwise */}
       {loading ? <LoadingSkeleton rows={5} /> : (
-        <div className="space-y-2">
+        <div ref={listRef} className="space-y-2">
           {filtered.length === 0 && (
-            <div className="text-center py-10 text-gray-400 text-sm">No bills found</div>
+            <EmptyState
+              icon={hasActiveFilters ? '🔍' : '📭'}
+              message={hasActiveFilters ? 'No bills match your filters' : 'No bills this month'}
+              submessage={hasActiveFilters ? 'Try clearing some filters to see more results' : undefined}
+            />
           )}
           {groupedFiltered.map(({ header, bills: groupBills }) => (
             <div key={header ?? 'all'}>
@@ -618,7 +653,7 @@ function MonthlyPageInner() {
                   const amount = bill.actual_amount ?? bill.default_amount
                   const dueLabel = dueDayOrdinal(bill.due_day)
                   return (
-                    <div key={bill.bill_id} className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
+                    <div key={bill.bill_id} className={`bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 transition-opacity ${bill.is_paid ? 'opacity-60' : ''}`}>
                       <button
                         onClick={() => togglePaid(bill)}
                         className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors"
@@ -796,10 +831,57 @@ function MonthlyPageInner() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Frequency</label>
-              <select value={editFrequency} onChange={e => setEditFrequency(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
+              <select
+                value={editFrequency}
+                onChange={e => {
+                  const freq = e.target.value
+                  setEditFrequency(freq)
+                  // Auto-populate months when switching to a cadence frequency
+                  if (CADENCE_FREQUENCIES.includes(freq)) {
+                    setEditMonthsActive(defaultMonthsForFrequency(freq))
+                  } else {
+                    setEditMonthsActive([])
+                  }
+                }}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+              >
                 {FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}
               </select>
             </div>
+
+            {/* Months active — shown for cadence frequencies only */}
+            {CADENCE_FREQUENCIES.includes(editFrequency) && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Applies in months
+                  <span className="ml-1 text-xs font-normal text-gray-400">
+                    ({editMonthsActive.length === 0 ? 'pick at least one' : `${editMonthsActive.length} selected`})
+                  </span>
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {MONTH_NAMES.map((m, i) => {
+                    const num = i + 1
+                    const on = editMonthsActive.includes(num)
+                    return (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setEditMonthsActive(prev =>
+                          on ? prev.filter(n => n !== num) : [...prev, num].sort((a, b) => a - b)
+                        )}
+                        className="px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors"
+                        style={on
+                          ? { backgroundColor: '#1B2A4A', color: '#fff', borderColor: '#1B2A4A' }
+                          : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+                      >
+                        {m}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <button
               onClick={() => setEditAutopay(v => !v)}
               className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border transition-colors text-left"

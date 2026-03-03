@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useState, useCallback } from 'react'
+import { useAutoAnimate } from '@formkit/auto-animate/react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import FinanceLayout from '@/components/finances/FinanceLayout'
 import BottomSheet from '@/components/finances/BottomSheet'
@@ -9,6 +10,7 @@ import CategoryChip, { CATEGORY_COLORS } from '@/components/finances/CategoryChi
 import AmountInput from '@/components/finances/AmountInput'
 import ProgressBar from '@/components/finances/ProgressBar'
 import LoadingSkeleton from '@/components/finances/LoadingSkeleton'
+import EmptyState from '@/components/finances/EmptyState'
 import { formatCurrency, formatDate, daysUntil } from '@/lib/finances/format'
 
 const CATEGORIES = ['Auto', 'Credit Card', 'Health', 'Housing', 'Insurance', 'Subscriptions', 'Tech', 'Other']
@@ -77,6 +79,9 @@ function AnnualPageInner() {
   const [sortBy, setSortBy] = useState<'due_date' | 'name' | 'category'>(() => (searchParams.get('sort') as 'due_date' | 'name' | 'category') ?? 'due_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => (searchParams.get('dir') as 'asc' | 'desc') ?? 'asc')
 
+  // List animation
+  const [listRef] = useAutoAnimate()
+
   // Edit sheet
   const [editOpen, setEditOpen] = useState(false)
   const [selected, setSelected] = useState<AnnualItem | null>(null)
@@ -89,17 +94,20 @@ function AnnualPageInner() {
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState(EMPTY_EDIT)
 
-  // Sync filters to URL
+  // Sync filters to URL — debounced 300 ms so rapid keystrokes don't spam history
   useEffect(() => {
-    const params = new URLSearchParams()
-    if (search) params.set('q', search)
-    if (filterCats.length) params.set('cats', filterCats.join(','))
-    if (filterOwners.length) params.set('owners', filterOwners.join(','))
-    if (filterPaid !== 'all') params.set('paid', filterPaid)
-    if (sortBy !== 'due_date') params.set('sort', sortBy)
-    if (sortDir !== 'asc') params.set('dir', sortDir)
-    const qs = params.toString()
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    const id = setTimeout(() => {
+      const params = new URLSearchParams()
+      if (search) params.set('q', search)
+      if (filterCats.length) params.set('cats', filterCats.join(','))
+      if (filterOwners.length) params.set('owners', filterOwners.join(','))
+      if (filterPaid !== 'all') params.set('paid', filterPaid)
+      if (sortBy !== 'due_date') params.set('sort', sortBy)
+      if (sortDir !== 'asc') params.set('dir', sortDir)
+      const qs = params.toString()
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    }, 300)
+    return () => clearTimeout(id)
   }, [search, filterCats, filterOwners, filterPaid, sortBy, sortDir, pathname, router])
 
   const fetchData = useCallback(async () => {
@@ -187,7 +195,7 @@ function AnnualPageInner() {
     })
     setSaving(false)
     setAddOpen(false)
-    setAddForm(EMPTY_EDIT)
+    setAddForm({ ...EMPTY_EDIT })
     fetchData()
   }
 
@@ -326,7 +334,7 @@ function AnnualPageInner() {
       title="Annual Expenses"
       rightAction={
         <button
-          onClick={() => { setAddForm(EMPTY_EDIT); setAddOpen(true) }}
+          onClick={() => { setAddForm({ ...EMPTY_EDIT }); setAddOpen(true) }}
           className="w-9 h-9 flex items-center justify-center rounded-full text-white text-xl font-bold"
           style={{ backgroundColor: '#2DB5AD' }}
         >
@@ -492,9 +500,13 @@ function AnnualPageInner() {
 
       {/* Items list — grouped by category when sort=category, flat otherwise */}
       {loading ? <LoadingSkeleton rows={5} /> : (
-        <div className="space-y-2">
+        <div ref={listRef} className="space-y-2">
           {filtered.length === 0 && (
-            <div className="text-center py-10 text-gray-400 text-sm">No expenses found</div>
+            <EmptyState
+              icon={hasActiveFilters ? '🔍' : '📭'}
+              message={hasActiveFilters ? 'No expenses match your filters' : 'No expenses this year'}
+              submessage={hasActiveFilters ? 'Try clearing some filters to see more results' : undefined}
+            />
           )}
           {groupedFiltered.map(({ header, items: groupItems }) => (
             <div key={header ?? 'all'}>
@@ -512,7 +524,7 @@ function AnnualPageInner() {
                     <div
                       key={item.id}
                       onClick={() => openEdit(item)}
-                      className="bg-white rounded-2xl p-4 shadow-sm flex items-start gap-3 cursor-pointer active:scale-[0.99] transition-transform"
+                      className={`bg-white rounded-2xl p-4 shadow-sm flex items-start gap-3 cursor-pointer active:scale-[0.99] transition-transform ${item.is_paid ? 'opacity-60' : ''}`}
                     >
                       {/* Status dot */}
                       <div

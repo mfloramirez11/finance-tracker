@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* ── Tailwind theme tokens ─────────────────────────────────── */
+/* Exposes bg-navy, text-navy, bg-teal, text-teal, etc. as     */
+/* Tailwind utility classes while keeping var() access intact   */
+@theme {
+  --color-navy:  #1B2A4A;
+  --color-teal:  #2DB5AD;
+  --color-gold:  #F0A500;
+  --color-red:   #D94F3D;
+  --color-green: #27AE60;
+}
+
 /* ── Light theme tokens ─────────────────────────────────────── */
 :root {
   --color-navy:     #1B2A4A;
@@ -7,6 +18,8 @@
   --color-gold:     #F0A500;
   --color-red:      #D94F3D;
   --color-green:    #27AE60;
+
+  --overlay:        rgba(0, 0, 0, 0.4);
 
   --bg:             #F0F2F5;
   --card:           #FFFFFF;
@@ -29,6 +42,8 @@
 /* ── Dark theme tokens ─────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root {
+    --overlay:        rgba(0, 0, 0, 0.6);
+
     --bg:             #0D1117;
     --card:           #161B27;
     --surface:        #1A2035;

@@ -246,6 +246,32 @@ export async function POST(req: NextRequest) {
     await sql`ALTER TABLE finance_bills ADD COLUMN IF NOT EXISTS debt_id UUID REFERENCES finance_debts(id) ON DELETE SET NULL`
     await sql`ALTER TABLE finance_actuals ADD COLUMN IF NOT EXISTS linked_debt_payment_id UUID REFERENCES finance_debt_payments(id) ON DELETE SET NULL`
 
+    // --- Migration 007: normalize billing_type vs frequency, drop unique name index ---
+    // Old seed data stored cadence (Quarterly, Bi-Monthly, etc.) in billing_type.
+    // Move those values into the frequency column and set billing_type to 'Variable'.
+    await sql`
+      UPDATE finance_bills
+      SET
+        frequency = CASE billing_type
+          WHEN 'Monthly'     THEN 'Monthly'
+          WHEN 'Bi-Monthly'  THEN 'Bi-Monthly'
+          WHEN 'Bi-Weekly'   THEN 'Bi-Weekly'
+          WHEN 'Quarterly'   THEN 'Quarterly'
+          WHEN 'Semi-Annual' THEN 'Semi-Annual'
+          WHEN 'Annual'      THEN 'Annual'
+          WHEN 'Varies'      THEN 'Varies'
+          ELSE frequency
+        END,
+        billing_type = CASE
+          WHEN billing_type NOT IN ('Fixed', 'Variable') THEN 'Variable'
+          ELSE billing_type
+        END
+      WHERE billing_type NOT IN ('Fixed', 'Variable')
+    `
+    // Drop the unique name constraint — names don't need to be globally unique
+    // (same-named bills can have different cadences or accounts)
+    await sql`DROP INDEX IF EXISTS finance_bills_name_idx`
+
     // --- Dedup all seeded tables (keep oldest row per unique key) ---
     await sql`
       DELETE FROM finance_debts
@@ -267,8 +293,9 @@ export async function POST(req: NextRequest) {
     `
 
     // Add unique indexes (idempotent via IF NOT EXISTS)
+    // Note: finance_bills_name_idx intentionally NOT recreated — dropped in Migration 007
+    // so bills with the same name but different cadences can coexist.
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS finance_debts_name_idx ON finance_debts (name)`
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS finance_bills_name_idx ON finance_bills (name)`
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS finance_annual_items_name_year_idx ON finance_annual_items (name, year)`
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS finance_accounts_name_idx ON finance_accounts (name)`
 
