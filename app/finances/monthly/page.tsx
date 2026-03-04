@@ -178,8 +178,8 @@ function MonthlyPageInner() {
     return () => clearTimeout(id)
   }, [search, filterCats, ownerFilters, showUnpaid, sortBy, sortDir, pathname, router])
 
-  const fetchBills = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true)
+  const fetchBills = useCallback(async (signal?: AbortSignal, silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const res = await fetch(`/api/finances/actuals?year=${year}&month=${month}`, signal ? { signal } : undefined)
       const json = await res.json()
@@ -187,7 +187,7 @@ function MonthlyPageInner() {
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [year, month])
 
@@ -376,6 +376,9 @@ function MonthlyPageInner() {
         ? { ...b, is_paid: newPaid, paid_date: newPaid ? now.toISOString().split('T')[0] : null }
         : b
     ))
+    // Neon HTTP API returns DECIMAL/NUMERIC columns as strings; Zod z.number() rejects strings
+    const rawAmount = bill.actual_amount ?? bill.default_amount
+    const numericAmount = rawAmount != null ? parseFloat(String(rawAmount)) : null
     try {
       const res = await fetch('/api/finances/actuals', {
         method: 'POST',
@@ -383,13 +386,13 @@ function MonthlyPageInner() {
         body: JSON.stringify({
           bill_id: bill.bill_id,
           year, month,
-          amount: bill.actual_amount ?? bill.default_amount,
+          amount: numericAmount,
           is_paid: newPaid,
           paid_date: newPaid ? now.toISOString().split('T')[0] : null,
         }),
       })
       if (!res.ok) throw new Error('Failed')
-      fetchBills()
+      fetchBills(undefined, true) // silent — optimistic UI already shows correct state
     } catch {
       // Roll back optimistic update
       setBills(prev => prev.map(b =>

@@ -14,6 +14,7 @@ interface DashboardData {
   monthly: {
     year: number; month: number; total: number; paid: number
     unpaid: number; paidCount: number; totalCount: number; leftover: number
+    bills: any[]
   }
   annual: { year: number; total: number; paid: number; upcoming: any[] }
   debts: { items: any[]; total: number; bofaDaysLeft: number | null }
@@ -80,6 +81,49 @@ export default function DashboardPage() {
             </div>
             <ProgressBar value={paidPct} />
             <p className="text-xs text-gray-400 mt-1.5">{data.monthly.paidCount} of {data.monthly.totalCount} bills paid</p>
+            {/* Coming up — unpaid monthly bills */}
+            {(() => {
+              const lastDay = new Date(year, month, 0).getDate()
+              const upcoming = (data.monthly.bills ?? [])
+                .filter((b: any) => !b.is_paid)
+                .map((b: any) => {
+                  const match = String(b.due_day ?? '').match(/\d+/)
+                  const raw = match ? parseInt(match[0]) : 99
+                  const dayNum = raw >= 1 && raw <= 31 ? Math.min(raw, lastDay) : 99
+                  const dueDateStr = dayNum !== 99
+                    ? `${year}-${String(month).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
+                    : null
+                  return { ...b, _dayNum: dayNum, _dueDateStr: dueDateStr }
+                })
+                .sort((a: any, b: any) => a._dayNum - b._dayNum)
+
+              if (upcoming.length === 0) {
+                return (
+                  <div className="mt-3 flex items-center gap-1.5">
+                    <span>🎉</span>
+                    <p className="text-sm text-gray-500">No more payments this month!</p>
+                  </div>
+                )
+              }
+              return (
+                <div className="mt-3 space-y-1.5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Coming up</p>
+                  {upcoming.slice(0, 3).map((bill: any) => {
+                    const amt = bill.actual_amount ?? bill.default_amount
+                    const days = bill._dueDateStr ? daysUntil(bill._dueDateStr) : null
+                    return (
+                      <div key={bill.id} className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700 truncate flex-1">{bill.name}</span>
+                        <div className="flex items-center gap-2 ml-2 shrink-0">
+                          <span className="text-sm font-medium text-gray-900">{formatCurrency(amt)}</span>
+                          {days !== null && <AlertBadge days={days} />}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </SummaryCard>
 
           {/* Annual tracker */}

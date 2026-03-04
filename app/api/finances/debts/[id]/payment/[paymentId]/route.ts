@@ -1,6 +1,20 @@
 import { NextRequest } from 'next/server'
-import { sql } from '@/lib/db'
+import { z } from 'zod'
+import { withTransaction } from '@/lib/db'
 import { requireFinanceAuth, unauthorizedResponse } from '@/lib/finances/auth'
+
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
+const UUIDSchema = z.string().uuid()
+
+const PatchPaymentSchema = z.object({
+  amount:           z.number().positive(),
+  payment_date:     z.string().regex(DATE_REGEX, 'payment_date must be YYYY-MM-DD'),
+  notes:            z.string().max(500).nullable().optional(),
+  principal_amount: z.number().nonnegative().nullable().optional(),
+  interest_amount:  z.number().nonnegative().nullable().optional(),
+  late_fees:        z.number().nonnegative().nullable().optional(),
+  misc_fees:        z.number().nonnegative().nullable().optional(),
+})
 
 export async function PATCH(
   req: NextRequest,
@@ -10,52 +24,64 @@ export async function PATCH(
   if (!authResult.authorized) return unauthorizedResponse(authResult.reason!)
 
   const { id, paymentId } = await params
-  const body = await req.json()
-  const { amount, payment_date, principal_amount, interest_amount, late_fees, misc_fees, notes } = body
 
-  if (amount == null || isNaN(parseFloat(String(amount)))) {
-    return Response.json({ data: null, error: 'amount is required and must be a number' }, { status: 400 })
+  const idParse = UUIDSchema.safeParse(id)
+  const pidParse = UUIDSchema.safeParse(paymentId)
+  if (!idParse.success || !pidParse.success) {
+    return Response.json({ data: null, error: 'Invalid id' }, { status: 400 })
   }
 
-  // Get the existing payment to calculate balance delta
-  const existing = await sql`
-    SELECT * FROM finance_debt_payments WHERE id = ${paymentId} AND debt_id = ${id}
-  `
-  if (!existing.length) return Response.json({ data: null, error: 'Not found' }, { status: 404 })
+  const body = await req.json()
+  const parsed = PatchPaymentSchema.safeParse(body)
+  if (!parsed.success) {
+    return Response.json({ data: null, error: parsed.error.issues[0]?.message ?? 'Invalid input' }, { status: 400 })
+  }
 
-  // Use principal amounts for the delta when available (interest-bearing loans).
-  // Fall back to full amount for 0% / credit card payments with no breakdown.
-  const oldEffective = existing[0].principal_amount != null
-    ? parseFloat(String(existing[0].principal_amount))
-    : parseFloat(String(existing[0].amount))
-  const newEffective = (principal_amount != null)
-    ? parseFloat(String(principal_amount))
-    : parseFloat(String(amount))
-  const balanceDelta = newEffective - oldEffective // positive = more principal = balance decreases more
+  const { amount, payment_date, principal_amount, interest_amount, late_fees, misc_fees, notes } = parsed.data
 
-  // Update the payment record
-  const payment = await sql`
-    UPDATE finance_debt_payments
-    SET amount = ${amount},
-        payment_date = ${payment_date},
-        principal_amount = ${principal_amount ?? null},
-        interest_amount = ${interest_amount ?? null},
-        late_fees = ${late_fees ?? null},
-        misc_fees = ${misc_fees ?? null},
-        notes = ${notes ?? null}
-    WHERE id = ${paymentId} AND debt_id = ${id}
-    RETURNING *
-  `
+  const result = await withTransaction(async client => {
+    // Get the existing payment to calculate balance delta
+    const { rows: existing } = await client.query(
+      `SELECT * FROM finance_debt_payments WHERE id = $1 AND debt_id = $2`,
+      [paymentId, id]
+    )
+    if (!existing.length) return null
 
-  // Adjust debt balance by the difference
-  const debt = await sql`
-    UPDATE finance_debts
-    SET current_balance = GREATEST(0, current_balance - ${balanceDelta}), updated_at = NOW()
-    WHERE id = ${id}
-    RETURNING *
-  `
+    // Use principal amounts for the delta when available (interest-bearing loans).
+    // Fall back to full amount for 0% / credit card payments with no breakdown.
+    const oldEffective = existing[0].principal_amount != null
+      ? parseFloat(String(existing[0].principal_amount))
+      : parseFloat(String(existing[0].amount))
+    const newEffective = principal_amount != null
+      ? parseFloat(String(principal_amount))
+      : parseFloat(String(amount))
+    const balanceDelta = newEffective - oldEffective // positive = more principal = balance decreases more
 
-  return Response.json({ data: { payment: payment[0], debt: debt[0] }, error: null })
+    // Update the payment record
+    const { rows: [payment] } = await client.query(
+      `UPDATE finance_debt_payments
+       SET amount = $1, payment_date = $2, principal_amount = $3,
+           interest_amount = $4, late_fees = $5, misc_fees = $6, notes = $7
+       WHERE id = $8 AND debt_id = $9
+       RETURNING *`,
+      [amount, payment_date, principal_amount ?? null, interest_amount ?? null,
+       late_fees ?? null, misc_fees ?? null, notes ?? null, paymentId, id]
+    )
+
+    // Adjust debt balance by the difference
+    const { rows: [debt] } = await client.query(
+      `UPDATE finance_debts
+       SET current_balance = GREATEST(0, current_balance - $1), updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [balanceDelta, id]
+    )
+
+    return { payment, debt }
+  })
+
+  if (!result) return Response.json({ data: null, error: 'Not found' }, { status: 404 })
+  return Response.json({ data: result, error: null })
 }
 
 export async function DELETE(
@@ -67,26 +93,39 @@ export async function DELETE(
 
   const { id, paymentId } = await params
 
-  // Get amount before deleting so we can restore the balance
-  const existing = await sql`
-    SELECT * FROM finance_debt_payments WHERE id = ${paymentId} AND debt_id = ${id}
-  `
-  if (!existing.length) return Response.json({ data: null, error: 'Not found' }, { status: 404 })
+  const idParse = UUIDSchema.safeParse(id)
+  const pidParse = UUIDSchema.safeParse(paymentId)
+  if (!idParse.success || !pidParse.success) {
+    return Response.json({ data: null, error: 'Invalid id' }, { status: 400 })
+  }
 
-  // Restore only what was originally deducted (principal, or full amount for 0% debts)
-  const restoreAmount = existing[0].principal_amount != null
-    ? parseFloat(String(existing[0].principal_amount))
-    : parseFloat(String(existing[0].amount))
+  const result = await withTransaction(async client => {
+    // Get amount before deleting so we can restore the balance
+    const { rows: existing } = await client.query(
+      `SELECT * FROM finance_debt_payments WHERE id = $1 AND debt_id = $2`,
+      [paymentId, id]
+    )
+    if (!existing.length) return null
 
-  await sql`DELETE FROM finance_debt_payments WHERE id = ${paymentId}`
+    // Restore only what was originally deducted (principal, or full amount for 0% debts)
+    const restoreAmount = existing[0].principal_amount != null
+      ? parseFloat(String(existing[0].principal_amount))
+      : parseFloat(String(existing[0].amount))
 
-  // Restore the balance
-  const debt = await sql`
-    UPDATE finance_debts
-    SET current_balance = current_balance + ${restoreAmount}, updated_at = NOW()
-    WHERE id = ${id}
-    RETURNING *
-  `
+    await client.query(`DELETE FROM finance_debt_payments WHERE id = $1`, [paymentId])
 
-  return Response.json({ data: { id: paymentId, debt: debt[0] }, error: null })
+    // Restore the balance
+    const { rows: [debt] } = await client.query(
+      `UPDATE finance_debts
+       SET current_balance = current_balance + $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [restoreAmount, id]
+    )
+
+    return { id: paymentId, debt }
+  })
+
+  if (!result) return Response.json({ data: null, error: 'Not found' }, { status: 404 })
+  return Response.json({ data: result, error: null })
 }
