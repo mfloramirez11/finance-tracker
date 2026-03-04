@@ -67,7 +67,8 @@ export async function withTransaction<T>(
     await client.query('COMMIT')
     return result
   } catch (err) {
-    await client.query('ROLLBACK')
+    // Wrap ROLLBACK so its failure never masks the original error
+    try { await client.query('ROLLBACK') } catch { /* ignore */ }
     throw err
   } finally {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

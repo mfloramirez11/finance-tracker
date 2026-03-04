@@ -137,6 +137,7 @@ function MonthlyPageInner() {
   const [selectedBill, setSelectedBill] = useState<BillRow | null>(null)
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Payment edit
   const [editAmount, setEditAmount] = useState('')
@@ -177,12 +178,17 @@ function MonthlyPageInner() {
     return () => clearTimeout(id)
   }, [search, filterCats, ownerFilters, showUnpaid, sortBy, sortDir, pathname, router])
 
-  const fetchBills = useCallback(async () => {
+  const fetchBills = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
-    const res = await fetch(`/api/finances/actuals?year=${year}&month=${month}`)
-    const json = await res.json()
-    setBills(json.data ?? [])
-    setLoading(false)
+    try {
+      const res = await fetch(`/api/finances/actuals?year=${year}&month=${month}`, signal ? { signal } : undefined)
+      const json = await res.json()
+      setBills(json.data ?? [])
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
+    } finally {
+      setLoading(false)
+    }
   }, [year, month])
 
   const fetchAccounts = useCallback(async () => {
@@ -199,7 +205,11 @@ function MonthlyPageInner() {
     setDebts((json.data?.debts ?? []).map((d: { id: string; name: string }) => ({ id: d.id, name: d.name })))
   }, [])
 
-  useEffect(() => { fetchBills() }, [fetchBills])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchBills(controller.signal)
+    return () => controller.abort()
+  }, [fetchBills])
   useEffect(() => { fetchAccounts() }, [fetchAccounts])
   useEffect(() => { fetchDebts() }, [fetchDebts])
 
@@ -209,6 +219,7 @@ function MonthlyPageInner() {
     setEditPaid(bill.is_paid ?? false)
     setEditDate(bill.paid_date ? bill.paid_date.split('T')[0] : now.toISOString().split('T')[0])
     setConfirmDelete(false)
+    setSaveError(null)
     setSheetView('payment')
     setSheetOpen(true)
   }
@@ -227,6 +238,7 @@ function MonthlyPageInner() {
     setEditDebtId(bill.debt_id ?? '')
     setEditMonthsActive(bill.months_active ?? [])
     setConfirmDelete(false)
+    setSaveError(null)
     setSheetView('editBill')
     if (!sheetOpen) setSheetOpen(true)
   }
@@ -244,14 +256,32 @@ function MonthlyPageInner() {
     setEditOwner('')
     setEditDebtId('')
     setEditMonthsActive([])
+    setSaveError(null)
     setSheetView('addBill')
     setSheetOpen(true)
+  }
+
+  // Shared fetch wrapper — returns parsed json on success, sets saveError and returns null on failure
+  async function apiFetch(url: string, opts: RequestInit): Promise<Record<string, unknown> | null> {
+    try {
+      const res = await fetch(url, opts)
+      const json = await res.json().catch(() => ({})) as { error?: string }
+      if (!res.ok) {
+        setSaveError(json.error ?? 'Something went wrong. Please try again.')
+        return null
+      }
+      return json as Record<string, unknown>
+    } catch {
+      setSaveError('Network error. Please check your connection and try again.')
+      return null
+    }
   }
 
   async function saveActual() {
     if (!selectedBill) return
     setSaving(true)
-    await fetch('/api/finances/actuals', {
+    setSaveError(null)
+    const ok = await apiFetch('/api/finances/actuals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -263,6 +293,7 @@ function MonthlyPageInner() {
       }),
     })
     setSaving(false)
+    if (!ok) return  // stay in sheet, error is displayed
     setSheetOpen(false)
     fetchBills()
   }
@@ -270,8 +301,9 @@ function MonthlyPageInner() {
   async function saveBillEdit() {
     if (!selectedBill) return
     setSaving(true)
+    setSaveError(null)
     const dueDayToSave = editDueDay === 'Varies' ? 'Varies' : editDueDay || null
-    await fetch(`/api/finances/bills/${selectedBill.bill_id}`, {
+    const ok = await apiFetch(`/api/finances/bills/${selectedBill.bill_id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -291,6 +323,7 @@ function MonthlyPageInner() {
       }),
     })
     setSaving(false)
+    if (!ok) return
     setSheetOpen(false)
     fetchBills()
   }
@@ -298,8 +331,9 @@ function MonthlyPageInner() {
   async function addBill() {
     if (!editName) return
     setSaving(true)
+    setSaveError(null)
     const dueDayToSave = editDueDay === 'Varies' ? 'Varies' : editDueDay || null
-    await fetch('/api/finances/bills', {
+    const ok = await apiFetch('/api/finances/bills', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -318,6 +352,7 @@ function MonthlyPageInner() {
       }),
     })
     setSaving(false)
+    if (!ok) return
     setSheetOpen(false)
     fetchBills()
   }
@@ -325,8 +360,10 @@ function MonthlyPageInner() {
   async function deleteBill() {
     if (!selectedBill) return
     setSaving(true)
-    await fetch(`/api/finances/bills/${selectedBill.bill_id}`, { method: 'DELETE' })
+    setSaveError(null)
+    const ok = await apiFetch(`/api/finances/bills/${selectedBill.bill_id}`, { method: 'DELETE' })
     setSaving(false)
+    if (!ok) return
     setSheetOpen(false)
     fetchBills()
   }
@@ -774,6 +811,9 @@ function MonthlyPageInner() {
                 </button>
               </div>
             )}
+            {saveError && (
+              <p className="text-xs text-rose-600 text-center font-medium pt-1 px-1">⚠️ {saveError}</p>
+            )}
           </div>
         )}
 
@@ -917,6 +957,9 @@ function MonthlyPageInner() {
                   </div>
                 )}
               </div>
+            )}
+            {saveError && (
+              <p className="text-xs text-rose-600 text-center font-medium pt-1 px-1">⚠️ {saveError}</p>
             )}
           </div>
         )}

@@ -1,6 +1,19 @@
 import { NextRequest } from 'next/server'
+import { z } from 'zod'
 import { sql } from '@/lib/db'
 import { requireFinanceAuth, unauthorizedResponse } from '@/lib/finances/auth'
+
+const CreateDebtSchema = z.object({
+  name:             z.string().min(1).max(100),
+  current_balance:  z.number().nonnegative(),
+  original_balance: z.number().nonnegative().nullable().optional(),
+  apr:              z.number().min(0).max(100).nullable().optional(),
+  min_payment:      z.number().nonnegative().nullable().optional(),
+  promo_end_date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'promo_end_date must be YYYY-MM-DD').nullable().optional(),
+  promo_apr:        z.number().min(0).max(100).nullable().optional(),
+  account:          z.string().max(100).nullable().optional(),
+  notes:            z.string().max(500).nullable().optional(),
+})
 
 export async function GET(req: NextRequest) {
   const authResult = await requireFinanceAuth()
@@ -36,11 +49,12 @@ export async function POST(req: NextRequest) {
   if (!authResult.authorized) return unauthorizedResponse(authResult.reason!)
 
   const body = await req.json()
-  const { name, current_balance, original_balance, apr, min_payment, promo_end_date, promo_apr, account, notes } = body
-
-  if (!name || current_balance === undefined) {
-    return Response.json({ data: null, error: 'name and current_balance are required' }, { status: 400 })
+  const parsed = CreateDebtSchema.safeParse(body)
+  if (!parsed.success) {
+    return Response.json({ data: null, error: parsed.error.issues[0]?.message ?? 'Invalid input' }, { status: 400 })
   }
+
+  const { name, current_balance, original_balance, apr, min_payment, promo_end_date, promo_apr, account, notes } = parsed.data
 
   const result = await sql`
     INSERT INTO finance_debts (name, current_balance, original_balance, apr, min_payment, promo_end_date, promo_apr, account, notes)

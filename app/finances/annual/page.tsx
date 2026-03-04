@@ -91,6 +91,7 @@ function AnnualPageInner() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Add sheet
   const [addOpen, setAddOpen] = useState(false)
@@ -112,12 +113,17 @@ function AnnualPageInner() {
     return () => clearTimeout(id)
   }, [search, filterCats, filterOwners, filterPaid, sortBy, sortDir, pathname, router])
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
-    const res = await fetch(`/api/finances/annual?year=${year}`)
-    const json = await res.json()
-    setData(json.data)
-    setLoading(false)
+    try {
+      const res = await fetch(`/api/finances/annual?year=${year}`, signal ? { signal } : undefined)
+      const json = await res.json()
+      setData(json.data)
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
+    } finally {
+      setLoading(false)
+    }
   }, [year])
 
   const fetchAccounts = useCallback(async () => {
@@ -127,7 +133,11 @@ function AnnualPageInner() {
     setAccounts(json.data ?? [])
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchData(controller.signal)
+    return () => controller.abort()
+  }, [fetchData])
   useEffect(() => { fetchAccounts() }, [fetchAccounts])
 
   function openEdit(item: AnnualItem) {
@@ -143,13 +153,31 @@ function AnnualPageInner() {
       owner: item.owner ?? '',
     })
     setConfirmDelete(false)
+    setSaveError(null)
     setEditOpen(true)
+  }
+
+  // Shared fetch wrapper — returns parsed json on success, sets saveError and returns null on failure
+  async function apiFetch(url: string, opts: RequestInit): Promise<Record<string, unknown> | null> {
+    try {
+      const res = await fetch(url, opts)
+      const json = await res.json().catch(() => ({})) as { error?: string }
+      if (!res.ok) {
+        setSaveError(json.error ?? 'Something went wrong. Please try again.')
+        return null
+      }
+      return json as Record<string, unknown>
+    } catch {
+      setSaveError('Network error. Please check your connection and try again.')
+      return null
+    }
   }
 
   async function saveEdit() {
     if (!selected) return
     setSaving(true)
-    await fetch(`/api/finances/annual/${selected.id}`, {
+    setSaveError(null)
+    const ok = await apiFetch(`/api/finances/annual/${selected.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -164,6 +192,7 @@ function AnnualPageInner() {
       }),
     })
     setSaving(false)
+    if (!ok) return  // stay in sheet, error is displayed
     setEditOpen(false)
     fetchData()
   }
@@ -171,8 +200,10 @@ function AnnualPageInner() {
   async function deleteItem() {
     if (!selected) return
     setDeleting(true)
-    await fetch(`/api/finances/annual/${selected.id}`, { method: 'DELETE' })
+    setSaveError(null)
+    const ok = await apiFetch(`/api/finances/annual/${selected.id}`, { method: 'DELETE' })
     setDeleting(false)
+    if (!ok) return  // stay in sheet, error is displayed
     setEditOpen(false)
     setConfirmDelete(false)
     fetchData()
@@ -181,7 +212,8 @@ function AnnualPageInner() {
   async function saveAdd() {
     if (!addForm.name || !addForm.amount || !addForm.dueDate) return
     setSaving(true)
-    await fetch('/api/finances/annual', {
+    setSaveError(null)
+    const ok = await apiFetch('/api/finances/annual', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -196,6 +228,7 @@ function AnnualPageInner() {
       }),
     })
     setSaving(false)
+    if (!ok) return  // stay in sheet, error is displayed
     setAddOpen(false)
     setAddForm({ ...EMPTY_EDIT })
     fetchData()
@@ -338,7 +371,7 @@ function AnnualPageInner() {
       title="Annual Expenses"
       rightAction={
         <button
-          onClick={() => { setAddForm({ ...EMPTY_EDIT }); setAddOpen(true) }}
+          onClick={() => { setAddForm({ ...EMPTY_EDIT }); setSaveError(null); setAddOpen(true) }}
           className="w-9 h-9 flex items-center justify-center rounded-full text-white text-xl font-bold"
           style={{ backgroundColor: '#2DB5AD' }}
         >
@@ -624,6 +657,9 @@ function AnnualPageInner() {
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
+            {saveError && (
+              <p className="text-xs text-rose-600 text-center font-medium px-1">⚠️ {saveError}</p>
+            )}
 
             {!confirmDelete ? (
               <button onClick={() => setConfirmDelete(true)}
@@ -656,6 +692,9 @@ function AnnualPageInner() {
               {saving ? 'Adding…' : 'Add'}
             </button>
           </div>
+          {saveError && (
+            <p className="text-xs text-rose-600 text-center font-medium px-1">⚠️ {saveError}</p>
+          )}
         </div>
       </BottomSheet>
     </FinanceLayout>

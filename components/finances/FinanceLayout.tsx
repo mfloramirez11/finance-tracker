@@ -33,7 +33,7 @@ export default function FinanceLayout({ title, children, rightAction }: FinanceL
         <div className="flex items-center justify-between px-4 h-14">
           <h1
             className="text-lg font-bold tracking-tight"
-            style={{ color: 'var(--color-navy)' }}
+            style={{ color: 'var(--text)' }}
           >
             {title}
           </h1>
