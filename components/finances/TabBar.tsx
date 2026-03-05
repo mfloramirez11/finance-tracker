@@ -51,11 +51,20 @@ function IconDebts({ active }: { active: boolean }) {
   )
 }
 
+function IconInsights({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
+  )
+}
+
 const TABS = [
-  { href: '/finances',         label: 'Dashboard', Icon: IconDashboard },
-  { href: '/finances/monthly', label: 'Monthly',   Icon: IconMonthly   },
-  { href: '/finances/annual',  label: 'Annual',    Icon: IconAnnual    },
-  { href: '/finances/debts',   label: 'Debts',     Icon: IconDebts     },
+  { href: '/finances',          label: 'Dashboard', Icon: IconDashboard },
+  { href: '/finances/monthly',  label: 'Monthly',   Icon: IconMonthly   },
+  { href: '/finances/annual',   label: 'Annual',    Icon: IconAnnual    },
+  { href: '/finances/debts',    label: 'Debts',     Icon: IconDebts     },
+  { href: '/finances/insights', label: 'Insights',  Icon: IconInsights  },
 ]
 
 export default function TabBar() {
