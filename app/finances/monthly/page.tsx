@@ -32,6 +32,7 @@ interface BillRow {
   owner: string | null
   debt_id: string | null
   credit_amount: number | null
+  actual_credit_amount: number | null
 }
 
 interface DebtOption { id: string; name: string }
@@ -218,6 +219,8 @@ function MonthlyPageInner() {
   function openPaymentSheet(bill: BillRow) {
     setSelectedBill(bill)
     setEditAmount(String(bill.actual_amount ?? bill.default_amount ?? ''))
+    const creditToShow = bill.actual_credit_amount ?? bill.credit_amount
+    setEditCreditAmount(creditToShow != null ? String(creditToShow) : '')
     setEditPaid(bill.is_paid ?? false)
     setEditDate(bill.paid_date ? bill.paid_date.split('T')[0] : now.toISOString().split('T')[0])
     setConfirmDelete(false)
@@ -234,12 +237,11 @@ function MonthlyPageInner() {
     setEditAccount(bill.account ?? '')
     setEditDueDay(parseDueDayToSelectValue(bill.due_day))
     setEditFrequency(bill.frequency ?? 'Monthly')
-    setEditDefaultAmount(String(bill.default_amount ?? ''))
+    setEditDefaultAmount(String(bill.actual_amount ?? bill.default_amount ?? ''))
     setEditAutopay(bill.is_autopay ?? false)
     setEditOwner(bill.owner ?? '')
     setEditDebtId(bill.debt_id ?? '')
     setEditMonthsActive(bill.months_active ?? [])
-    setEditCreditAmount(bill.credit_amount != null ? String(bill.credit_amount) : '')
     setConfirmDelete(false)
     setSaveError(null)
     setSheetView('editBill')
@@ -294,10 +296,11 @@ function MonthlyPageInner() {
         amount: editAmount ? parseFloat(editAmount) : null,
         is_paid: editPaid,
         paid_date: editPaid ? editDate : null,
+        credit_amount: parseFloat(editCreditAmount) || 0,
       }),
     })
+    if (!ok) { setSaving(false); return }
     setSaving(false)
-    if (!ok) return  // stay in sheet, error is displayed
     setSheetOpen(false)
     fetchBills()
   }
@@ -307,6 +310,7 @@ function MonthlyPageInner() {
     setSaving(true)
     setSaveError(null)
     const dueDayToSave = editDueDay === 'Varies' ? 'Varies' : editDueDay || null
+    const newAmount = editDefaultAmount ? parseFloat(editDefaultAmount) : null
     const ok = await apiFetch(`/api/finances/bills/${selectedBill.bill_id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -317,18 +321,33 @@ function MonthlyPageInner() {
         account: editAccount || null,
         due_day: dueDayToSave,
         frequency: editFrequency,
-        default_amount: editDefaultAmount ? parseFloat(editDefaultAmount) : null,
+        default_amount: newAmount,
         is_autopay: editAutopay,
         owner: editOwner || null,
         debt_id: editDebtId || null,
         months_active: CADENCE_FREQUENCIES.includes(editFrequency)
           ? (editMonthsActive.length > 0 ? editMonthsActive : null)
           : null,
-        credit_amount: editCreditAmount ? parseFloat(editCreditAmount) : null,
       }),
     })
+    if (!ok) { setSaving(false); return }
+    // Sync the current month's actual so the card shows the new amount immediately.
+    // Only when an actual already exists — avoids creating records for months not yet reached.
+    if (selectedBill.actual_id && newAmount !== null) {
+      await apiFetch('/api/finances/actuals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bill_id: selectedBill.bill_id,
+          year,
+          month,
+          amount: newAmount,
+          is_paid: selectedBill.is_paid,
+          paid_date: selectedBill.paid_date ?? null,
+        }),
+      })
+    }
     setSaving(false)
-    if (!ok) return
     setSheetOpen(false)
     fetchBills()
   }
@@ -451,7 +470,7 @@ function MonthlyPageInner() {
     return true
   }), [bills, ownerFilters, filterCats])
 
-  const netBillAmt = (b: BillRow) => Math.max(0, parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)) - (parseFloat(String(b.credit_amount ?? 0)) || 0))
+  const netBillAmt = (b: BillRow) => Math.max(0, parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)) - (parseFloat(String(b.actual_credit_amount ?? b.credit_amount ?? 0)) || 0))
   const total = statBills.reduce((s, b) => s + netBillAmt(b), 0)
   const paid = statBills.filter(b => b.is_paid).reduce((s, b) => s + netBillAmt(b), 0)
   const paidPct = total > 0 ? (paid / total) * 100 : 0
@@ -545,7 +564,7 @@ function MonthlyPageInner() {
               const dayNum = parseDueDay(bill.due_day)
               const daysLeft = dayNum - todayDay
               const grossAmt = bill.actual_amount ?? bill.default_amount
-              const credit = parseFloat(String(bill.credit_amount ?? 0)) || 0
+              const credit = parseFloat(String(bill.actual_credit_amount ?? bill.credit_amount ?? 0)) || 0
               const netAmt = grossAmt !== null ? Math.max(0, parseFloat(String(grossAmt)) - credit) : null
               return (
                 <div key={bill.bill_id} className="flex items-center justify-between" onClick={() => openPaymentSheet(bill)}>
@@ -722,7 +741,7 @@ function MonthlyPageInner() {
               <div className="space-y-2">
                 {groupBills.map(bill => {
                   const grossAmt = bill.actual_amount ?? bill.default_amount
-                  const credit = parseFloat(String(bill.credit_amount ?? 0)) || 0
+                  const credit = parseFloat(String(bill.actual_credit_amount ?? bill.credit_amount ?? 0)) || 0
                   const displayAmt = grossAmt !== null ? Math.max(0, parseFloat(String(grossAmt)) - credit) : null
                   const dueLabel = dueDayOrdinal(bill.due_day)
                   return (
@@ -817,6 +836,23 @@ function MonthlyPageInner() {
               )}
             </div>
             <AmountInput label="Amount" value={editAmount} onChange={setEditAmount} placeholder={String(selectedBill.default_amount ?? '0.00')} />
+            {isAdmin && (
+              <AmountInput label="Statement Credit (optional)" value={editCreditAmount} onChange={setEditCreditAmount} placeholder="0.00" />
+            )}
+            {(() => {
+              const gross = parseFloat(editAmount) || 0
+              const credit = parseFloat(editCreditAmount) || 0
+              if (gross > 0 && credit > 0) {
+                const net = Math.max(0, gross - credit)
+                return (
+                  <div className="flex justify-between items-center px-1 -mt-1">
+                    <span className="text-xs text-gray-400">Net after credit</span>
+                    <span className="text-sm font-bold" style={{ color: '#27AE60' }}>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(net)}</span>
+                  </div>
+                )
+              }
+              return null
+            })()}
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setEditPaid(!editPaid)}
@@ -894,7 +930,6 @@ function MonthlyPageInner() {
               </div>
             </div>
             <AmountInput label="Default Amount" value={editDefaultAmount} onChange={setEditDefaultAmount} placeholder="0.00" />
-            <AmountInput label="Statement Credit (optional)" value={editCreditAmount} onChange={setEditCreditAmount} placeholder="0.00" />
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Account / Card</label>
               <select value={editAccount} onChange={e => setEditAccount(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">

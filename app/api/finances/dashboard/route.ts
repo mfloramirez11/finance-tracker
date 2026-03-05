@@ -24,7 +24,8 @@ export async function GET(req: NextRequest) {
     SELECT
       b.id, b.name, b.category, b.billing_type, b.default_amount,
       b.account, b.due_day, b.months_active, b.sort_order, b.credit_amount,
-      a.amount as actual_amount, a.is_paid, a.paid_date, a.id as actual_id
+      a.amount as actual_amount, a.is_paid, a.paid_date, a.id as actual_id,
+      a.credit_amount as actual_credit_amount
     FROM finance_bills b
     LEFT JOIN finance_actuals a ON a.bill_id = b.id AND a.year = ${year} AND a.month = ${month}
     WHERE b.is_active = true
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
   // Calculate monthly totals using net amounts (gross - credit)
   const netBillAmt = (b: any) => {
     const gross = parseFloat(b.actual_amount ?? b.default_amount ?? 0)
-    const credit = parseFloat(b.credit_amount ?? 0) || 0
+    const credit = parseFloat(b.actual_credit_amount ?? b.credit_amount ?? 0) || 0
     return Math.max(0, gross - credit)
   }
   const monthlyTotal = bills.reduce((sum: number, b: any) => sum + netBillAmt(b), 0)

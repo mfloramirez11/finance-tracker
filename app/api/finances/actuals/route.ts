@@ -11,6 +11,7 @@ const UpsertActualSchema = z.object({
   is_paid: z.boolean().optional(),
   paid_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   notes: z.string().max(500).nullable().optional(),
+  credit_amount: z.number().nonnegative().nullable().optional(),
 })
 
 // GET /api/finances/actuals?year=2026&month=2
@@ -28,7 +29,8 @@ export async function GET(req: NextRequest) {
       b.account, b.due_day, b.months_active, b.sort_order, b.notes as bill_notes,
       b.frequency, b.is_autopay, b.owner, b.debt_id, b.credit_amount,
       a.id as actual_id, a.amount as actual_amount, a.is_paid, a.paid_date,
-      a.notes as actual_notes, a.linked_debt_payment_id
+      a.notes as actual_notes, a.linked_debt_payment_id,
+      a.credit_amount as actual_credit_amount
     FROM finance_bills b
     LEFT JOIN finance_actuals a ON a.bill_id = b.id AND a.year = ${year} AND a.month = ${month}
     WHERE b.is_active = true
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
     const msg = parse.error.issues[0]?.message ?? 'Invalid request body'
     return Response.json({ data: null, error: msg }, { status: 400 })
   }
-  const { bill_id, year, month, amount, is_paid, paid_date, notes } = parse.data
+  const { bill_id, year, month, amount, is_paid, paid_date, notes, credit_amount } = parse.data
 
   // Read-only lookups — outside the transaction for efficiency
   const bills = await sql`SELECT debt_id FROM finance_bills WHERE id = ${bill_id}`
@@ -134,19 +136,20 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Upsert the actual including the linked payment ID
+      // Upsert the actual including the linked payment ID and per-month credit
       const { rows: [upserted] } = await client.query(
-        `INSERT INTO finance_actuals (bill_id, year, month, amount, is_paid, paid_date, notes, linked_debt_payment_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO finance_actuals (bill_id, year, month, amount, is_paid, paid_date, notes, linked_debt_payment_id, credit_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (bill_id, year, month) DO UPDATE SET
            amount = EXCLUDED.amount,
            is_paid = EXCLUDED.is_paid,
            paid_date = EXCLUDED.paid_date,
            notes = EXCLUDED.notes,
            linked_debt_payment_id = $8,
+           credit_amount = $9,
            updated_at = NOW()
          RETURNING *`,
-        [bill_id, year, month, amount ?? null, is_paid ?? false, paid_date ?? null, notes ?? null, newLinkedPaymentId]
+        [bill_id, year, month, amount ?? null, is_paid ?? false, paid_date ?? null, notes ?? null, newLinkedPaymentId, credit_amount ?? null]
       )
       return upserted
     })

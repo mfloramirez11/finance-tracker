@@ -22,7 +22,8 @@ export async function GET(req: NextRequest) {
   const currentBills = await sql`
     SELECT
       b.id, b.name, b.category, b.billing_type, b.default_amount, b.credit_amount, b.due_day,
-      a.amount as actual_amount, a.is_paid, a.paid_date
+      a.amount as actual_amount, a.is_paid, a.paid_date,
+      a.credit_amount as actual_credit_amount
     FROM finance_bills b
     LEFT JOIN finance_actuals a ON a.bill_id = b.id AND a.year = ${year} AND a.month = ${month}
     WHERE b.is_active = true
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
 
   const netBillAmt = (b: any) => {
     const gross = parseFloat(b.actual_amount ?? b.default_amount ?? 0)
-    const credit = parseFloat(b.credit_amount ?? 0) || 0
+    const credit = parseFloat(b.actual_credit_amount ?? b.credit_amount ?? 0) || 0
     return Math.max(0, gross - credit)
   }
 
@@ -78,7 +79,10 @@ export async function GET(req: NextRequest) {
       a.year, a.month,
       b.billing_type,
       SUM(
-        GREATEST(0, COALESCE(a.amount, b.default_amount, 0)::numeric - COALESCE(b.credit_amount, 0)::numeric)
+        CASE
+          WHEN a.amount IS NOT NULL THEN a.amount::numeric
+          ELSE GREATEST(0, COALESCE(b.default_amount, 0)::numeric - COALESCE(b.credit_amount, 0)::numeric)
+        END
       ) as total
     FROM finance_actuals a
     JOIN finance_bills b ON b.id = a.bill_id
