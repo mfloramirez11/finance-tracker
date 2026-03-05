@@ -22,6 +22,7 @@ const PatchBillSchema = z.object({
   is_autopay:     z.boolean(),
   owner:          z.string().max(50).nullable(),
   debt_id:        z.string().uuid().nullable(),
+  credit_amount:  z.number().nonnegative().nullable(),
 }).partial()
 
 const UUIDSchema = z.string().uuid()

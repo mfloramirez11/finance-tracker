@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const bills = await sql`
     SELECT
       b.id, b.name, b.category, b.billing_type, b.default_amount,
-      b.account, b.due_day, b.months_active, b.sort_order,
+      b.account, b.due_day, b.months_active, b.sort_order, b.credit_amount,
       a.amount as actual_amount, a.is_paid, a.paid_date, a.id as actual_id
     FROM finance_bills b
     LEFT JOIN finance_actuals a ON a.bill_id = b.id AND a.year = ${year} AND a.month = ${month}
@@ -32,14 +32,16 @@ export async function GET(req: NextRequest) {
     ORDER BY b.sort_order
   `
 
-  // Calculate monthly totals
-  const monthlyTotal = bills.reduce((sum: number, b: any) => {
-    const amt = parseFloat(b.actual_amount ?? b.default_amount ?? 0)
-    return sum + amt
-  }, 0)
+  // Calculate monthly totals using net amounts (gross - credit)
+  const netBillAmt = (b: any) => {
+    const gross = parseFloat(b.actual_amount ?? b.default_amount ?? 0)
+    const credit = parseFloat(b.credit_amount ?? 0) || 0
+    return Math.max(0, gross - credit)
+  }
+  const monthlyTotal = bills.reduce((sum: number, b: any) => sum + netBillAmt(b), 0)
   const paidTotal = bills.reduce((sum: number, b: any) => {
     if (!b.is_paid) return sum
-    return sum + parseFloat(b.actual_amount ?? b.default_amount ?? 0)
+    return sum + netBillAmt(b)
   }, 0)
   const unpaidTotal = monthlyTotal - paidTotal
   const paidCount = bills.filter((b: any) => b.is_paid).length
@@ -53,10 +55,10 @@ export async function GET(req: NextRequest) {
     LIMIT 5
   `
   const annualTotal = await sql`
-    SELECT COALESCE(SUM(amount), 0) as total FROM finance_annual_items WHERE year = ${year}
+    SELECT COALESCE(SUM(GREATEST(0, amount - COALESCE(credit_amount, 0))), 0) as total FROM finance_annual_items WHERE year = ${year}
   `
   const annualPaid = await sql`
-    SELECT COALESCE(SUM(amount), 0) as total FROM finance_annual_items WHERE year = ${year} AND is_paid = true
+    SELECT COALESCE(SUM(GREATEST(0, amount - COALESCE(credit_amount, 0))), 0) as total FROM finance_annual_items WHERE year = ${year} AND is_paid = true
   `
 
   // Debts summary

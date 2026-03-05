@@ -109,13 +109,15 @@ export default function DashboardPage() {
                 <div className="mt-3 space-y-1.5">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Coming up</p>
                   {upcoming.slice(0, 3).map((bill: any) => {
-                    const amt = bill.actual_amount ?? bill.default_amount
+                    const gross = parseFloat(String(bill.actual_amount ?? bill.default_amount ?? 0))
+                    const credit = parseFloat(String(bill.credit_amount ?? 0)) || 0
+                    const netAmt = Math.max(0, gross - credit)
                     const days = bill._dueDateStr ? daysUntil(bill._dueDateStr) : null
                     return (
                       <div key={bill.id} className="flex items-center justify-between">
                         <span className="text-sm text-gray-700 truncate flex-1">{bill.name}</span>
                         <div className="flex items-center gap-2 ml-2 shrink-0">
-                          <span className="text-sm font-medium text-gray-900">{formatCurrency(amt)}</span>
+                          <span className="text-sm font-medium text-gray-900">{formatCurrency(netAmt)}</span>
                           {days !== null && <AlertBadge days={days} />}
                         </div>
                       </div>
@@ -144,11 +146,13 @@ export default function DashboardPage() {
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Coming up</p>
                 {data.annual.upcoming.slice(0, 3).map((item: any) => {
                   const days = daysUntil(item.due_date.split('T')[0])
+                  const credit = parseFloat(String(item.credit_amount ?? 0)) || 0
+                  const netAmt = Math.max(0, parseFloat(String(item.amount)) - credit)
                   return (
                     <div key={item.id} className="flex items-center justify-between">
                       <span className="text-sm text-gray-700 truncate flex-1">{item.name}</span>
                       <div className="flex items-center gap-2 ml-2 shrink-0">
-                        <span className="text-sm font-medium text-gray-900">{formatCurrency(item.amount)}</span>
+                        <span className="text-sm font-medium text-gray-900">{formatCurrency(netAmt)}</span>
                         <AlertBadge days={days} />
                       </div>
                     </div>

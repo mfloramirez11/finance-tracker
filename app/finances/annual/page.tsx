@@ -40,6 +40,7 @@ interface AnnualItem {
   paid_date: string | null
   notes: string | null
   owner: string | null
+  credit_amount: number | null
 }
 
 interface AnnualData {
@@ -49,7 +50,7 @@ interface AnnualData {
   remaining: number
 }
 
-const EMPTY_EDIT = { name: '', category: 'Auto', amount: '', dueDate: '', account: '', isPaid: false, paidDate: '', owner: '' }
+const EMPTY_EDIT = { name: '', category: 'Auto', amount: '', dueDate: '', account: '', isPaid: false, paidDate: '', owner: '', creditAmount: '' }
 
 // Suspense wrapper required for useSearchParams in Next.js App Router
 export default function AnnualPage() {
@@ -151,6 +152,7 @@ function AnnualPageInner() {
       isPaid: item.is_paid,
       paidDate: item.paid_date ? item.paid_date.split('T')[0] : new Date().toISOString().split('T')[0],
       owner: item.owner ?? '',
+      creditAmount: item.credit_amount != null ? String(item.credit_amount) : '',
     })
     setConfirmDelete(false)
     setSaveError(null)
@@ -189,6 +191,7 @@ function AnnualPageInner() {
         is_paid: editForm.isPaid,
         paid_date: editForm.isPaid ? editForm.paidDate : null,
         owner: editForm.owner || null,
+        credit_amount: parseFloat(editForm.creditAmount) || null,
       }),
     })
     setSaving(false)
@@ -225,6 +228,7 @@ function AnnualPageInner() {
         year,
         is_critical: false,
         owner: addForm.owner || null,
+        credit_amount: parseFloat(addForm.creditAmount) || null,
       }),
     })
     setSaving(false)
@@ -250,9 +254,11 @@ function AnnualPageInner() {
     if (sortBy === 'name') cmp = a.name.localeCompare(b.name)
     else if (sortBy === 'category') {
       const catCmp = a.category.localeCompare(b.category)
-      cmp = catCmp !== 0 ? catCmp : a.due_date.localeCompare(b.due_date)
+      cmp = catCmp !== 0 ? catCmp : a.name.localeCompare(b.name)
     } else {
-      cmp = a.due_date.localeCompare(b.due_date)
+      // sortBy === 'due_date': secondary sort by name for ties
+      const dateCmp = a.due_date.localeCompare(b.due_date)
+      cmp = dateCmp !== 0 ? dateCmp : a.name.localeCompare(b.name)
     }
     return sortDir === 'desc' ? -cmp : cmp
   }), [data, sortBy, sortDir])
@@ -278,8 +284,9 @@ function AnnualPageInner() {
     return true
   }), [data, filterOwners, filterCats])
 
-  const displayTotal = statItems.reduce((s, i) => s + parseFloat(String(i.amount)), 0)
-  const displayPaid = statItems.filter(i => i.is_paid).reduce((s, i) => s + parseFloat(String(i.amount)), 0)
+  const netItemAmt = (i: AnnualItem) => Math.max(0, parseFloat(String(i.amount)) - (parseFloat(String(i.credit_amount ?? 0)) || 0))
+  const displayTotal = statItems.reduce((s, i) => s + netItemAmt(i), 0)
+  const displayPaid = statItems.filter(i => i.is_paid).reduce((s, i) => s + netItemAmt(i), 0)
   const paidPct = displayTotal > 0 ? (displayPaid / displayTotal) * 100 : 0
   const activeCatColor = filterCats.length === 1 ? (CATEGORY_COLORS[filterCats[0]]?.bg ?? '#2DB5AD') : undefined
   const hasActiveFilters = search !== '' || filterCats.length > 0 || filterOwners.length > 0 || filterPaid !== 'all'
@@ -332,6 +339,7 @@ function AnnualPageInner() {
       </div>
 
       <AmountInput label="Amount" value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} required />
+      <AmountInput label="Statement Credit (optional)" value={form.creditAmount} onChange={v => setForm(f => ({ ...f, creditAmount: v }))} />
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Due Date <span className="text-red-500">*</span></label>
@@ -432,94 +440,108 @@ function AnnualPageInner() {
       </div>
 
       {/* Owner filters */}
-      <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
-        <button
-          onClick={() => setFilterOwners([])}
-          className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-          style={filterOwners.length === 0
-            ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
-            : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-        >
-          👥 All
-        </button>
-        {OWNER_LABELS.map(o => {
-          const active = filterOwners.includes(o)
-          const col = OWNER_COLORS[o] ?? { bg: '#7C3AED', color: '#fff' }
-          return (
-            <button
-              key={o}
-              onClick={() => setFilterOwners(prev => active ? prev.filter(x => x !== o) : [...prev, o])}
-              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-              style={active
-                ? { backgroundColor: col.color, color: '#fff', borderColor: col.color }
-                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-            >
-              {o}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Sort row — clicking active button toggles direction */}
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs text-gray-400 font-medium shrink-0">Sort</span>
-        {([['due_date', 'Due Date'], ['name', 'Name'], ['category', 'Label']] as const).map(([val, label]) => (
+        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide shrink-0">Owner</span>
+        <div className="flex gap-1.5 overflow-x-auto pb-1 min-w-0">
           <button
-            key={val}
-            onClick={() => toggleSort(val)}
+            onClick={() => setFilterOwners([])}
             className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-            style={sortBy === val
-              ? { backgroundColor: '#1B2A4A', color: '#fff', borderColor: '#1B2A4A' }
+            style={filterOwners.length === 0
+              ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
               : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
           >
-            {label}{sortBy === val ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+            👥 All
           </button>
-        ))}
+          {OWNER_LABELS.map(o => {
+            const active = filterOwners.includes(o)
+            const col = OWNER_COLORS[o] ?? { bg: '#7C3AED', color: '#fff' }
+            return (
+              <button
+                key={o}
+                onClick={() => setFilterOwners(prev => active ? prev.filter(x => x !== o) : [...prev, o])}
+                className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+                style={active
+                  ? { backgroundColor: col.color, color: '#fff', borderColor: col.color }
+                  : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+              >
+                {o}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Sort + Status — combined control row */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        {/* Left: Sort segmented control */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide shrink-0">Sort</span>
+          <div className="flex rounded-lg p-0.5 gap-0.5" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+            {(['due_date', 'name', 'category'] as const).map(val => {
+              const label = val === 'due_date' ? 'Due Date' : val === 'name' ? 'Name' : 'Category'
+              const active = sortBy === val
+              return (
+                <button
+                  key={val}
+                  onClick={() => toggleSort(val)}
+                  className="px-2.5 py-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap"
+                  style={active
+                    ? { backgroundColor: '#fff', color: '#1B2A4A', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }
+                    : { backgroundColor: 'transparent', color: '#9CA3AF' }}
+                >
+                  {label}{active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        {/* Right: Status segmented control */}
+        <div className="flex rounded-lg p-0.5 gap-0.5 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+          {(['all', 'unpaid', 'paid'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFilterPaid(f)}
+              className="px-2.5 py-1 rounded-md text-xs font-semibold capitalize transition-all"
+              style={filterPaid === f
+                ? { backgroundColor: '#fff', color: '#1B2A4A', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }
+                : { backgroundColor: 'transparent', color: '#9CA3AF' }}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Category filters — multi-select */}
-      <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
-        <button
-          onClick={() => setFilterCats([])}
-          className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-          style={filterCats.length === 0
-            ? { backgroundColor: '#2DB5AD', color: '#fff', borderColor: '#2DB5AD' }
-            : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-        >
-          All
-        </button>
-        {CAT_OPTIONS.map(cat => {
-          const active = filterCats.includes(cat)
-          const catColor = CATEGORY_COLORS[cat]?.bg ?? '#2DB5AD'
-          return (
-            <button
-              key={cat}
-              onClick={() => setFilterCats(prev => active ? prev.filter(x => x !== cat) : [...prev, cat])}
-              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-              style={active
-                ? { backgroundColor: catColor, color: '#fff', borderColor: catColor }
-                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-            >
-              {cat}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Paid / unpaid tabs */}
-      <div className="flex gap-2 mb-3">
-        {(['all', 'unpaid', 'paid'] as const).map(f => (
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide shrink-0">Cat</span>
+        <div className="flex gap-1.5 overflow-x-auto pb-1 min-w-0">
           <button
-            key={f}
-            onClick={() => setFilterPaid(f)}
-            className="px-3 py-1.5 rounded-full text-xs font-semibold border capitalize"
-            style={filterPaid === f
+            onClick={() => setFilterCats([])}
+            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+            style={filterCats.length === 0
               ? { backgroundColor: '#2DB5AD', color: '#fff', borderColor: '#2DB5AD' }
               : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
           >
-            {f}
+            All
           </button>
-        ))}
+          {CAT_OPTIONS.map(cat => {
+            const active = filterCats.includes(cat)
+            const catColor = CATEGORY_COLORS[cat]?.bg ?? '#2DB5AD'
+            return (
+              <button
+                key={cat}
+                onClick={() => setFilterCats(prev => active ? prev.filter(x => x !== cat) : [...prev, cat])}
+                className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+                style={active
+                  ? { backgroundColor: catColor, color: '#fff', borderColor: catColor }
+                  : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+              >
+                {cat}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Clear All Filters — only visible when any filter is active */}
@@ -605,9 +627,14 @@ function AnnualPageInner() {
                       </div>
 
                       <div className="shrink-0 text-right">
-                        <p className={`text-base font-bold mb-1 ${item.is_paid ? 'text-gray-400' : 'text-gray-900'}`}>
-                          {formatCurrency(item.amount)}
+                        <p className={`text-base font-bold mb-0.5 ${item.is_paid ? 'text-gray-400' : 'text-gray-900'}`}>
+                          {formatCurrency(netItemAmt(item))}
                         </p>
+                        {(parseFloat(String(item.credit_amount ?? 0)) || 0) > 0 && (
+                          <p className="text-[10px] font-medium mb-0.5" style={{ color: '#27AE60' }}>
+                            −{formatCurrency(parseFloat(String(item.credit_amount)))} credit
+                          </p>
+                        )}
                         {!item.is_paid && <AlertBadge days={days} />}
                       </div>
                     </div>

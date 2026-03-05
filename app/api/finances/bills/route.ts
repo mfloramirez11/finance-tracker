@@ -19,6 +19,7 @@ const CreateBillSchema = z.object({
   frequency: z.enum(BILL_FREQUENCIES).optional(),
   is_autopay: z.boolean().optional(),
   owner: z.string().max(50).nullable().optional(),
+  credit_amount: z.number().nonnegative().nullable().optional(),
 })
 
 export async function GET(req: NextRequest) {
@@ -48,13 +49,13 @@ export async function POST(req: NextRequest) {
     const msg = parse.error.issues[0]?.message ?? 'Invalid request body'
     return Response.json({ data: null, error: msg }, { status: 400 })
   }
-  const { name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order, frequency, is_autopay, owner } = parse.data
+  const { name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order, frequency, is_autopay, owner, credit_amount } = parse.data
 
   const result = await sql`
-    INSERT INTO finance_bills (name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order, frequency, is_autopay, owner)
+    INSERT INTO finance_bills (name, category, billing_type, default_amount, account, due_day, months_active, notes, sort_order, frequency, is_autopay, owner, credit_amount)
     VALUES (${name}, ${category}, ${billing_type}, ${default_amount ?? null}, ${account ?? null},
             ${due_day ?? null}, ${months_active ?? null}, ${notes ?? null}, ${sort_order ?? 0},
-            ${frequency ?? 'Monthly'}, ${is_autopay ?? false}, ${owner ?? null})
+            ${frequency ?? 'Monthly'}, ${is_autopay ?? false}, ${owner ?? null}, ${credit_amount ?? null})
     RETURNING *
   `
   return Response.json({ data: result[0], error: null }, { status: 201 })

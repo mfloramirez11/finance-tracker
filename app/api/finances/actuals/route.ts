@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     SELECT
       b.id as bill_id, b.name, b.category, b.billing_type, b.default_amount,
       b.account, b.due_day, b.months_active, b.sort_order, b.notes as bill_notes,
-      b.frequency, b.is_autopay, b.owner, b.debt_id,
+      b.frequency, b.is_autopay, b.owner, b.debt_id, b.credit_amount,
       a.id as actual_id, a.amount as actual_amount, a.is_paid, a.paid_date,
       a.notes as actual_notes, a.linked_debt_payment_id
     FROM finance_bills b

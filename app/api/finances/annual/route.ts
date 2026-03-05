@@ -15,6 +15,7 @@ const CreateAnnualSchema = z.object({
   notes: z.string().max(500).nullable().optional(),
   is_critical: z.boolean().optional(),
   owner: z.string().max(50).nullable().optional(),
+  credit_amount: z.number().nonnegative().nullable().optional(),
 })
 
 export async function GET(req: NextRequest) {
@@ -30,8 +31,9 @@ export async function GET(req: NextRequest) {
     ORDER BY due_date ASC
   `
 
-  const total = items.reduce((s: number, i: any) => s + parseFloat(i.amount), 0)
-  const paid = items.filter((i: any) => i.is_paid).reduce((s: number, i: any) => s + parseFloat(i.amount), 0)
+  const netAmt = (i: any) => Math.max(0, parseFloat(i.amount) - parseFloat(i.credit_amount ?? 0))
+  const total = items.reduce((s: number, i: any) => s + netAmt(i), 0)
+  const paid = items.filter((i: any) => i.is_paid).reduce((s: number, i: any) => s + netAmt(i), 0)
 
   return Response.json({ data: { items, total, paid, remaining: total - paid }, error: null })
 }
@@ -46,11 +48,11 @@ export async function POST(req: NextRequest) {
     const msg = parse.error.issues[0]?.message ?? 'Invalid request body'
     return Response.json({ data: null, error: msg }, { status: 400 })
   }
-  const { name, category, amount, due_date, account, year, notes, is_critical, owner } = parse.data
+  const { name, category, amount, due_date, account, year, notes, is_critical, owner, credit_amount } = parse.data
 
   const result = await sql`
-    INSERT INTO finance_annual_items (name, category, amount, due_date, account, year, notes, is_critical, owner)
-    VALUES (${name}, ${category}, ${amount}, ${due_date}, ${account ?? null}, ${year}, ${notes ?? null}, ${is_critical ?? false}, ${owner ?? null})
+    INSERT INTO finance_annual_items (name, category, amount, due_date, account, year, notes, is_critical, owner, credit_amount)
+    VALUES (${name}, ${category}, ${amount}, ${due_date}, ${account ?? null}, ${year}, ${notes ?? null}, ${is_critical ?? false}, ${owner ?? null}, ${credit_amount ?? null})
     RETURNING *
   `
   return Response.json({ data: result[0], error: null }, { status: 201 })

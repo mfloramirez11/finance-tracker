@@ -17,7 +17,8 @@ const PatchAnnualItemSchema = z.object({
   paid_date:   z.string().regex(DATE_REGEX, 'paid_date must be YYYY-MM-DD').nullable(),
   notes:       z.string().max(500).nullable(),
   is_critical: z.boolean(),
-  owner:       z.string().max(50).nullable(),
+  owner:        z.string().max(50).nullable(),
+  credit_amount: z.number().nonnegative().nullable(),
 }).partial()
 
 const UUIDSchema = z.string().uuid()

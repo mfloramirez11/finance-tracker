@@ -31,6 +31,7 @@ interface BillRow {
   actual_notes: string | null
   owner: string | null
   debt_id: string | null
+  credit_amount: number | null
 }
 
 interface DebtOption { id: string; name: string }
@@ -156,6 +157,7 @@ function MonthlyPageInner() {
   const [editOwner, setEditOwner] = useState('')
   const [editDebtId, setEditDebtId] = useState<string>('')
   const [editMonthsActive, setEditMonthsActive] = useState<number[]>([])
+  const [editCreditAmount, setEditCreditAmount] = useState('')
 
   // List animation
   const [listRef] = useAutoAnimate()
@@ -237,6 +239,7 @@ function MonthlyPageInner() {
     setEditOwner(bill.owner ?? '')
     setEditDebtId(bill.debt_id ?? '')
     setEditMonthsActive(bill.months_active ?? [])
+    setEditCreditAmount(bill.credit_amount != null ? String(bill.credit_amount) : '')
     setConfirmDelete(false)
     setSaveError(null)
     setSheetView('editBill')
@@ -256,6 +259,7 @@ function MonthlyPageInner() {
     setEditOwner('')
     setEditDebtId('')
     setEditMonthsActive([])
+    setEditCreditAmount('')
     setSaveError(null)
     setSheetView('addBill')
     setSheetOpen(true)
@@ -320,6 +324,7 @@ function MonthlyPageInner() {
         months_active: CADENCE_FREQUENCIES.includes(editFrequency)
           ? (editMonthsActive.length > 0 ? editMonthsActive : null)
           : null,
+        credit_amount: editCreditAmount ? parseFloat(editCreditAmount) : null,
       }),
     })
     setSaving(false)
@@ -349,6 +354,7 @@ function MonthlyPageInner() {
         months_active: CADENCE_FREQUENCIES.includes(editFrequency)
           ? (editMonthsActive.length > 0 ? editMonthsActive : null)
           : null,
+        credit_amount: editCreditAmount ? parseFloat(editCreditAmount) : null,
       }),
     })
     setSaving(false)
@@ -419,9 +425,11 @@ function MonthlyPageInner() {
     if (sortBy === 'name') cmp = a.name.localeCompare(b.name)
     else if (sortBy === 'category') {
       const catCmp = a.category.localeCompare(b.category)
-      cmp = catCmp !== 0 ? catCmp : parseDueDay(a.due_day) - parseDueDay(b.due_day)
+      cmp = catCmp !== 0 ? catCmp : a.name.localeCompare(b.name)
     } else {
-      cmp = parseDueDay(a.due_day) - parseDueDay(b.due_day)
+      // sortBy === 'due_date': secondary sort by name for ties
+      const dayCmp = parseDueDay(a.due_day) - parseDueDay(b.due_day)
+      cmp = dayCmp !== 0 ? dayCmp : a.name.localeCompare(b.name)
     }
     return sortDir === 'desc' ? -cmp : cmp
   }), [bills, sortBy, sortDir])
@@ -443,8 +451,9 @@ function MonthlyPageInner() {
     return true
   }), [bills, ownerFilters, filterCats])
 
-  const total = statBills.reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
-  const paid = statBills.filter(b => b.is_paid).reduce((s, b) => s + parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)), 0)
+  const netBillAmt = (b: BillRow) => Math.max(0, parseFloat(String(b.actual_amount ?? b.default_amount ?? 0)) - (parseFloat(String(b.credit_amount ?? 0)) || 0))
+  const total = statBills.reduce((s, b) => s + netBillAmt(b), 0)
+  const paid = statBills.filter(b => b.is_paid).reduce((s, b) => s + netBillAmt(b), 0)
   const paidPct = total > 0 ? (paid / total) * 100 : 0
   const unpaidCount = statBills.filter(b => !b.is_paid).length
   const activeCatColor = filterCats.length === 1 ? (CATEGORY_COLORS[filterCats[0]]?.bg ?? '#2DB5AD') : undefined
@@ -535,7 +544,9 @@ function MonthlyPageInner() {
             {comingUp.map(bill => {
               const dayNum = parseDueDay(bill.due_day)
               const daysLeft = dayNum - todayDay
-              const amount = bill.actual_amount ?? bill.default_amount
+              const grossAmt = bill.actual_amount ?? bill.default_amount
+              const credit = parseFloat(String(bill.credit_amount ?? 0)) || 0
+              const netAmt = grossAmt !== null ? Math.max(0, parseFloat(String(grossAmt)) - credit) : null
               return (
                 <div key={bill.bill_id} className="flex items-center justify-between" onClick={() => openPaymentSheet(bill)}>
                   <div className="flex-1 min-w-0">
@@ -543,7 +554,7 @@ function MonthlyPageInner() {
                     <p className="text-xs text-gray-400">Due {dueDayOrdinal(bill.due_day)}</p>
                   </div>
                   <div className="flex items-center gap-2 ml-2 shrink-0">
-                    {amount !== null && <span className="text-sm font-semibold text-gray-900">{formatCurrency(amount)}</span>}
+                    {netAmt !== null && <span className="text-sm font-semibold text-gray-900">{formatCurrency(netAmt)}</span>}
                     <span
                       className="text-xs font-semibold px-2 py-0.5 rounded-full"
                       style={daysLeft === 0
@@ -578,87 +589,103 @@ function MonthlyPageInner() {
       </div>
 
       {/* Owner filters */}
-      <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
-        <button
-          onClick={() => setOwnerFilters([])}
-          className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-          style={ownerFilters.length === 0
-            ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
-            : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-        >
-          👥 All
-        </button>
-        {OWNER_LABELS.map(o => {
-          const active = ownerFilters.includes(o)
-          const col = OWNER_COLORS[o] ?? { bg: '#7C3AED', color: '#fff' }
-          return (
-            <button
-              key={o}
-              onClick={() => setOwnerFilters(prev => active ? prev.filter(x => x !== o) : [...prev, o])}
-              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-              style={active
-                ? { backgroundColor: col.color, color: '#fff', borderColor: col.color }
-                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-            >
-              {o}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Sort row — clicking active button toggles direction */}
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs text-gray-400 font-medium shrink-0">Sort</span>
-        {([['due_date', 'Due Date'], ['name', 'Name'], ['category', 'Label']] as const).map(([val, label]) => (
+        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide shrink-0">Owner</span>
+        <div className="flex gap-1.5 overflow-x-auto pb-1 min-w-0">
           <button
-            key={val}
-            onClick={() => toggleSort(val)}
+            onClick={() => setOwnerFilters([])}
             className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-            style={sortBy === val
-              ? { backgroundColor: '#1B2A4A', color: '#fff', borderColor: '#1B2A4A' }
+            style={ownerFilters.length === 0
+              ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
               : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
           >
-            {label}{sortBy === val ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+            👥 All
           </button>
-        ))}
+          {OWNER_LABELS.map(o => {
+            const active = ownerFilters.includes(o)
+            const col = OWNER_COLORS[o] ?? { bg: '#7C3AED', color: '#fff' }
+            return (
+              <button
+                key={o}
+                onClick={() => setOwnerFilters(prev => active ? prev.filter(x => x !== o) : [...prev, o])}
+                className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+                style={active
+                  ? { backgroundColor: col.color, color: '#fff', borderColor: col.color }
+                  : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+              >
+                {o}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Category filters — multi-select */}
-      <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
-        <button
-          onClick={() => setFilterCats([])}
-          className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-          style={filterCats.length === 0
-            ? { backgroundColor: '#2DB5AD', color: '#fff', borderColor: '#2DB5AD' }
-            : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-        >
-          All
-        </button>
-        {CAT_OPTIONS.map(cat => {
-          const active = filterCats.includes(cat)
-          const catColor = CATEGORY_COLORS[cat]?.bg ?? '#2DB5AD'
-          return (
-            <button
-              key={cat}
-              onClick={() => setFilterCats(prev => active ? prev.filter(x => x !== cat) : [...prev, cat])}
-              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
-              style={active
-                ? { backgroundColor: catColor, color: '#fff', borderColor: catColor }
-                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
-            >
-              {cat}
-            </button>
-          )
-        })}
+      {/* Sort + Unpaid toggle — combined control row */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        {/* Left: Sort segmented control */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide shrink-0">Sort</span>
+          <div className="flex rounded-lg p-0.5 gap-0.5" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+            {(['due_date', 'name', 'category'] as const).map(val => {
+              const label = val === 'due_date' ? 'Due Date' : val === 'name' ? 'Name' : 'Category'
+              const active = sortBy === val
+              return (
+                <button
+                  key={val}
+                  onClick={() => toggleSort(val)}
+                  className="px-2.5 py-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap"
+                  style={active
+                    ? { backgroundColor: '#fff', color: '#1B2A4A', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }
+                    : { backgroundColor: 'transparent', color: '#9CA3AF' }}
+                >
+                  {label}{active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        {/* Right: Unpaid toggle */}
         <button
           onClick={() => setShowUnpaid(!showUnpaid)}
-          className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+          className="shrink-0 px-2.5 py-1 rounded-md text-xs font-semibold transition-all"
           style={showUnpaid
-            ? { backgroundColor: '#F0A500', color: '#fff', borderColor: '#F0A500' }
-            : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+            ? { backgroundColor: '#F0A500', color: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.12)' }
+            : { backgroundColor: 'rgba(255,255,255,0.08)', color: '#9CA3AF' }}
         >
           Unpaid only
         </button>
+      </div>
+
+      {/* Category filters — multi-select */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide shrink-0">Cat</span>
+        <div className="flex gap-1.5 overflow-x-auto pb-1 min-w-0">
+          <button
+            onClick={() => setFilterCats([])}
+            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+            style={filterCats.length === 0
+              ? { backgroundColor: '#2DB5AD', color: '#fff', borderColor: '#2DB5AD' }
+              : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+          >
+            All
+          </button>
+          {CAT_OPTIONS.map(cat => {
+            const active = filterCats.includes(cat)
+            const catColor = CATEGORY_COLORS[cat]?.bg ?? '#2DB5AD'
+            return (
+              <button
+                key={cat}
+                onClick={() => setFilterCats(prev => active ? prev.filter(x => x !== cat) : [...prev, cat])}
+                className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+                style={active
+                  ? { backgroundColor: catColor, color: '#fff', borderColor: catColor }
+                  : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }}
+              >
+                {cat}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Clear All Filters — only visible when any filter is active */}
@@ -694,7 +721,9 @@ function MonthlyPageInner() {
               )}
               <div className="space-y-2">
                 {groupBills.map(bill => {
-                  const amount = bill.actual_amount ?? bill.default_amount
+                  const grossAmt = bill.actual_amount ?? bill.default_amount
+                  const credit = parseFloat(String(bill.credit_amount ?? 0)) || 0
+                  const displayAmt = grossAmt !== null ? Math.max(0, parseFloat(String(grossAmt)) - credit) : null
                   const dueLabel = dueDayOrdinal(bill.due_day)
                   return (
                     <div key={bill.bill_id} className={`bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 transition-opacity ${bill.is_paid ? 'opacity-60' : ''}`}>
@@ -747,8 +776,11 @@ function MonthlyPageInner() {
                       <div className="flex items-center gap-1 shrink-0">
                         <div className="text-right" onClick={() => openPaymentSheet(bill)}>
                           <p className={`text-base font-bold ${bill.is_paid ? 'text-gray-400' : 'text-gray-900'}`}>
-                            {amount !== null ? formatCurrency(amount) : <span className="text-gray-300">—</span>}
+                            {displayAmt !== null ? formatCurrency(displayAmt) : <span className="text-gray-300">—</span>}
                           </p>
+                          {credit > 0 && (
+                            <p className="text-[10px] font-medium" style={{ color: '#27AE60' }}>−{formatCurrency(credit)} credit</p>
+                          )}
                         </div>
                         {isAdmin && (
                           <button
@@ -862,6 +894,7 @@ function MonthlyPageInner() {
               </div>
             </div>
             <AmountInput label="Default Amount" value={editDefaultAmount} onChange={setEditDefaultAmount} placeholder="0.00" />
+            <AmountInput label="Statement Credit (optional)" value={editCreditAmount} onChange={setEditCreditAmount} placeholder="0.00" />
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Account / Card</label>
               <select value={editAccount} onChange={e => setEditAccount(e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
