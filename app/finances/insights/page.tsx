@@ -322,7 +322,7 @@ export default function InsightsPage() {
                     )}
                   />
                   <Tooltip
-                    formatter={(value: number) => [formatCurrency(value), 'Amount']}
+                    formatter={(value) => [formatCurrency(value as number), 'Amount']}
                   />
                 </PieChart>
               </ResponsiveContainer>
